@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ room.name }} - 聊天室</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1>聊天室</h1>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-item">
+                <a href="/create_chat_room">创建聊天室</a>
+            </div>
+            <div class="nav-item">
+                <a href="/search_chat_room">查找聊天室</a>
+            </div>
+            <div class="nav-item">
+                <a href="/manage_requests">审核请求</a>
+            </div>
+            <div class="nav-item">
+                <a href="/search_user">搜索用户</a>
+            </div>
+            <div class="nav-item">
+                <a href="/edit_profile">编辑个人信息</a>
+            </div>
+            <div class="nav-item">
+                <a href="/change_password">修改密码</a>
+            </div>
+            <div class="nav-item">
+                <a href="/logout">退出登录</a>
+            </div>
+        </div>
+        <div class="chat-rooms">
+            <h2>我的聊天室</h2>
+            {% if chat_rooms %}
+                {% for room in chat_rooms %}
+                    <div class="room-item">
+                        <a href="/chat_room/{{ room.id }}">{{ room.name }}</a>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p>暂无聊天室</p>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <div class="main-header">
+            <div class="room-info">
+                <h2>{{ room.name }}</h2>
+                {% if member.role == 'owner' %}
+                    <a href="/edit_chat_room/{{ room.id }}" class="edit-link">编辑</a>
+                {% endif %}
+                {% if member.role in ['owner', 'admin'] %}
+                    <button class="invite-btn" onclick="showInviteModal()">邀请用户</button>
+                {% endif %}
+            </div>
+            <a href="/chat" class="back-link">返回</a>
+        </div>
+        
+        <!-- 邀请用户模态框 -->
+        <div id="invite-modal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>邀请用户加入聊天室</h3>
+                    <span class="close" onclick="hideInviteModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <form id="invite-form" method="POST" action="/invite_user/{{ room.id }}">
+                        <div class="form-group">
+                            <label for="invite-user-id">用户ID或用户名</label>
+                            <input type="text" id="invite-user-id" name="user_id" placeholder="输入用户ID或用户名" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="invite-role">角色</label>
+                            <select id="invite-role" name="role">
+                                <option value="member">普通成员</option>
+                                <option value="admin">管理员</option>
+                            </select>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="cancel-btn" onclick="hideInviteModal()">取消</button>
+                            <input type="submit" value="发送邀请" class="submit-btn">
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="chat-container">
+            <div class="messages-area" id="messages-area">
+                {% for message in messages %}
+                    {% if message.is_撤回 %}
+                        <div class="recall-message">
+                            消息已撤回
+                        </div>
+                    {% else %}
+                        <div class="message {% if message.sender_id == session['user_id'] %}own{% else %}other{% endif %}">
+                            <div class="message-content">
+                                <div class="message-header">
+                                    {{ session['username'] if message.sender_id == session['user_id'] else message.sender_name }}
+                                </div>
+                                <div class="message-text">{{ message.content | replace('\n', '<br>') }}</div>
+                                <div class="message-time">{{ message.formatted_time }}</div>
+                                <button class="recall-btn" onclick="recallMessage('{{ message.id }}')">×</button>
+                            </div>
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+            
+            <div class="input-area">
+                <div class="input-container">
+                    <textarea 
+                        id="message-input" 
+                        placeholder="输入消息... (Shift+Enter换行，Enter发送)"
+                        oninput="updateMessageSize()"
+                    ></textarea>
+                    <div class="input-footer">
+                        <span class="message-size" id="message-size">0/5KB</span>
+                        <button id="send-btn" onclick="sendMessage()">发送</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const roomId = "{{ room.id }}";
+        const userId = "{{ session['user_id'] }}";
+        
+        // 更新消息大小
+        function updateMessageSize() {
+            const input = document.getElementById('message-input');
+            const sizeSpan = document.getElementById('message-size');
+            const size = new Blob([input.value]).size;
+            const maxSize = 5 * 1024;
+            sizeSpan.textContent = `${size}/${maxSize}B`;
+            
+            // 禁用发送按钮如果超过大小限制
+            document.getElementById('send-btn').disabled = size > maxSize;
+        }
+        
+        // 发送消息
+        function sendMessage() {
+            const input = document.getElementById('message-input');
+            const content = input.value.trim();
+            
+            if (!content) return;
+            
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/send_message', true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.success) {
+                        input.value = '';
+                        updateMessageSize();
+                        // 这里应该添加消息到聊天区域，暂时刷新页面
+                        location.reload();
+                        showToast('消息发送成功', 'success');
+                    } else {
+                        showToast(response.message, 'error');
+                    }
+                }
+            };
+            xhr.send(`chat_room_id=${roomId}&content=${encodeURIComponent(content)}`);
+        }
+        
+        // 撤回消息
+        function recallMessage(messageId) {
+            showConfirm('确定要撤回这条消息吗？', () => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', `/recall_message/${messageId}`, true);
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState === 4 && xhr.status === 200) {
+                        const response = JSON.parse(xhr.responseText);
+                        if (response.success) {
+                            location.reload();
+                            showToast('消息撤回成功', 'success');
+                        } else {
+                            showToast(response.message, 'error');
+                        }
+                    }
+                };
+                xhr.send();
+            });
+        }
+        
+        // 键盘事件：Enter发送，Shift+Enter换行
+        document.getElementById('message-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                if (e.shiftKey) {
+                    // Shift+Enter换行，默认行为
+                } else {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            }
+        });
+        
+        // 初始化
+        window.onload = function() {
+            updateMessageSize();
+            // 滚动到底部
+            const messagesArea = document.getElementById('messages-area');
+            messagesArea.scrollTop = messagesArea.scrollHeight;
+        };
+        
+        // 显示邀请模态框
+        function showInviteModal() {
+            document.getElementById('invite-modal').style.display = 'block';
+        }
+        
+        // 隐藏邀请模态框
+        function hideInviteModal() {
+            document.getElementById('invite-modal').style.display = 'none';
+        }
+        
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('invite-modal');
+            if (event.target == modal) {
+                hideInviteModal();
+            }
+        };
+        
+        // 自定义提示组件函数
+        function showToast(message, type = 'info', duration = 3000) {
+            // 创建toast元素（如果不存在）
+            let toast = document.getElementById('custom-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'custom-toast';
+                document.body.appendChild(toast);
+            }
+            
+            // 设置内容和类型
+            toast.textContent = message;
+            toast.className = type;
+            
+            // 显示toast
+            toast.classList.add('show');
+            
+            // 自动隐藏
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, duration);
+        }
+        
+        // 自定义确认框函数
+        function showConfirm(message, okCallback, cancelCallback) {
+            // 创建确认框元素（如果不存在）
+            let confirmBox = document.getElementById('custom-confirm');
+            if (!confirmBox) {
+                confirmBox = document.createElement('div');
+                confirmBox.id = 'custom-confirm';
+                confirmBox.innerHTML = `
+                    <div class="confirm-header">确认操作</div>
+                    <div class="confirm-body"></div>
+                    <div class="confirm-footer">
+                        <button class="confirm-btn confirm-cancel">取消</button>
+                        <button class="confirm-btn confirm-ok">确认</button>
+                    </div>
+                `;
+                document.body.appendChild(confirmBox);
+            }
+            
+            // 设置内容
+            confirmBox.querySelector('.confirm-body').textContent = message;
+            
+            // 显示确认框
+            confirmBox.classList.add('show');
+            
+            // 绑定事件
+            const okBtn = confirmBox.querySelector('.confirm-ok');
+            const cancelBtn = confirmBox.querySelector('.confirm-cancel');
+            
+            // 移除之前的事件监听器
+            okBtn.replaceWith(okBtn.cloneNode(true));
+            cancelBtn.replaceWith(cancelBtn.cloneNode(true));
+            
+            // 重新获取元素并绑定事件
+            const newOkBtn = confirmBox.querySelector('.confirm-ok');
+            const newCancelBtn = confirmBox.querySelector('.confirm-cancel');
+            
+            newOkBtn.addEventListener('click', () => {
+                confirmBox.classList.remove('show');
+                if (okCallback) okCallback();
+            });
+            
+            newCancelBtn.addEventListener('click', () => {
+                confirmBox.classList.remove('show');
+                if (cancelCallback) cancelCallback();
+            });
+            
+            // 点击外部关闭
+            window.onclick = function(event) {
+                if (event.target == confirmBox) {
+                    confirmBox.classList.remove('show');
+                    if (cancelCallback) cancelCallback();
+                }
+            };
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>审核请求 - 聊天室</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1>聊天室</h1>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-item">
+                <a href="/create_chat_room">创建聊天室</a>
+            </div>
+            <div class="nav-item">
+                <a href="/search_chat_room">查找聊天室</a>
+            </div>
+            <div class="nav-item">
+                <a href="/manage_requests">审核请求</a>
+            </div>
+            <div class="nav-item">
+                <a href="/search_user">搜索用户</a>
+            </div>
+            <div class="nav-item">
+                <a href="/edit_profile">编辑个人信息</a>
+            </div>
+            <div class="nav-item">
+                <a href="/change_password">修改密码</a>
+            </div>
+            <div class="nav-item">
+                <a href="/logout">退出登录</a>
+            </div>
+        </div>
+        <div class="chat-rooms">
+            <h2>我的聊天室</h2>
+            {% if chat_rooms %}
+                {% for room in chat_rooms %}
+                    <div class="room-item">
+                        <a href="/chat_room/{{ room.id }}">{{ room.name }}</a>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p>暂无聊天室</p>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <div class="main-header">
+            <h2>审核请求</h2>
+            <a href="/chat" class="back-link">返回</a>
+        </div>
+        
+        <div class="main-body">
+            <div class="requests-container">
+                <!-- 聊天室请求 -->
+                <h2 class="section-title">聊天室请求</h2>
+                {% if pending_chat_requests %}
+                    {% for room_id, requests in pending_chat_requests.items() %}
+                        <div class="room-section">
+                            <h3>{{ room_names[room_id] }}</h3>
+                            {% for request in requests %}
+                                <div class="request-item">
+                                    <div class="request-info">
+                                        <div class="username">{{ request.username }}</div>
+                                        <div class="request-time">{{ request.request_time }}</div>
+                                    </div>
+                                    <div class="request-actions">
+                                        <button type="button" class="approve-btn" onclick="handleChatRequest('approve', '{{ request.id }}')">批准</button>
+                                        <button type="button" class="reject-btn" onclick="handleChatRequest('reject', '{{ request.id }}')">拒绝</button>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="no-requests">
+                        <p>暂无聊天室请求</p>
+                    </div>
+                {% endif %}
+                
+                <!-- 好友请求 -->
+                <h2 class="section-title" style="margin-top: 2rem;">好友请求</h2>
+                {% if friend_requests %}
+                    <div class="friend-requests-section">
+                        {% for request in friend_requests %}
+                            <div class="request-item">
+                                <div class="request-info">
+                                    <div class="username">{{ request.username }}</div>
+                                    <div class="request-time">{{ request.request_time }}</div>
+                                </div>
+                                <div class="request-actions">
+                                        <button type="button" class="approve-btn" onclick="handleFriendRequest('{{ request.id }}', 'accept')">接受</button>
+                                        <button type="button" class="reject-btn" onclick="handleFriendRequest('{{ request.id }}', 'reject')">拒绝</button>
+                                    </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="no-requests">
+                        <p>暂无好友请求</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 自定义提示组件函数
+        function showToast(message, type = 'info', duration = 3000) {
+            // 创建toast元素（如果不存在）
+            let toast = document.getElementById('custom-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'custom-toast';
+                document.body.appendChild(toast);
+            }
+            
+            // 设置内容和类型
+            toast.textContent = message;
+            toast.className = type;
+            
+            // 显示toast
+            toast.classList.add('show');
+            
+            // 自动隐藏
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, duration);
+        }
+        
+        // 处理好友请求
+        function handleFriendRequest(requestId, action) {
+            const url = `/handle_friend_request/${requestId}/${action}`;
+            const xhr = new XMLHttpRequest();
+            
+            xhr.open('POST', url, true);
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.success) {
+                        // 更新页面
+                        location.reload();
+                        showToast(action === 'accept' ? '好友请求已接受' : '好友请求已拒绝', 'success');
+                    } else {
+                        showToast(response.message, 'error');
+                    }
+                }
+            };
+            xhr.send();
+        }
+        
+        // 处理聊天室请求
+        function handleChatRequest(action, requestId) {
+            const url = action === 'approve' ? '/approve_request' : '/reject_request';
+            const xhr = new XMLHttpRequest();
+            
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    // 更新页面
+                    location.reload();
+                    showToast(action === 'approve' ? '请求已批准' : '请求已拒绝', 'success');
+                }
+            };
+            xhr.send(`request_id=${requestId}`);
+        }
+    </script>
+</body>
+</html>

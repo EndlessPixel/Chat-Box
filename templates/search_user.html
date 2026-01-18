@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>搜索用户 - 聊天室</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1>聊天室</h1>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-item">
+                <a href="/create_chat_room">创建聊天室</a>
+            </div>
+            <div class="nav-item">
+                <a href="/search_chat_room">查找聊天室</a>
+            </div>
+            <div class="nav-item">
+                <a href="/manage_requests">审核请求</a>
+            </div>
+            <div class="nav-item">
+                <a href="/search_user">搜索用户</a>
+            </div>
+            <div class="nav-item">
+                <a href="/edit_profile">编辑个人信息</a>
+            </div>
+            <div class="nav-item">
+                <a href="/change_password">修改密码</a>
+            </div>
+            <div class="nav-item">
+                <a href="/logout">退出登录</a>
+            </div>
+        </div>
+        <div class="chat-rooms">
+            <h2>我的聊天室</h2>
+            {% if chat_rooms %}
+                {% for room in chat_rooms %}
+                    <div class="room-item">
+                        <a href="/chat_room/{{ room.id }}">{{ room.name }}</a>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p>暂无聊天室</p>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <div class="main-header">
+            <h2>搜索用户</h2>
+            <a href="/chat" class="back-link">返回</a>
+        </div>
+        <div class="main-body">
+            <form class="search-form" method="POST" action="/search_user">
+                <input type="text" name="keyword" placeholder="输入用户名或UID" required>
+                <input type="submit" value="搜索">
+            </form>
+            
+            <div class="results-container">
+                {% if users %}
+                    {% for user in users %}
+                        <div class="user-item">
+                            <div class="user-info">
+                                <div class="username">{{ user.decoded_username if user.decoded_username else user.nickname }}</div>
+                                <div class="user-id">UID: {{ user.id }}</div>
+                            </div>
+                            <button class="add-btn" onclick="addFriend('{{ user.id }}')">添加好友</button>
+                        </div>
+                    {% endfor %}
+                {% elif request.method == 'POST' %}
+                    <div class="no-results">
+                        <p>没有找到匹配的用户</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 自定义提示组件函数
+        function showToast(message, type = 'info', duration = 3000) {
+            // 创建toast元素（如果不存在）
+            let toast = document.getElementById('custom-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'custom-toast';
+                document.body.appendChild(toast);
+            }
+            
+            // 设置内容和类型
+            toast.textContent = message;
+            toast.className = type;
+            
+            // 显示toast
+            toast.classList.add('show');
+            
+            // 自动隐藏
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, duration);
+        }
+        
+        // 添加好友
+        function addFriend(userId) {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `/add_friend/${userId}`, true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.success) {
+                        showToast('好友请求已发送', 'success');
+                        location.reload();
+                    } else {
+                        showToast(response.message, 'error');
+                    }
+                }
+            };
+            xhr.send();
+        }
+    </script>
+</body>
+</html>
