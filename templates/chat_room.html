@@ -210,7 +210,133 @@
             // 滚动到底部
             const messagesArea = document.getElementById('messages-area');
             messagesArea.scrollTop = messagesArea.scrollHeight;
+            
+            // 开始长轮询获取新消息
+            startLongPolling();
         };
+        
+        // 存储最后一条消息的ID，用于长轮询
+        let lastMessageId = "";
+        let longPollingTimeout = null;
+        
+        // 获取最后一条消息的ID
+        function getLastMessageId() {
+            const messages = document.querySelectorAll('.message');
+            if (messages.length > 0) {
+                const lastMessage = messages[messages.length - 1];
+                const messageContent = lastMessage.querySelector('.message-content');
+                const recallBtn = messageContent.querySelector('.recall-btn');
+                if (recallBtn) {
+                    const onclickAttr = recallBtn.getAttribute('onclick');
+                    const messageIdMatch = onclickAttr.match(/recallMessage\('([^']+)\)/);
+                    if (messageIdMatch && messageIdMatch[1]) {
+                        return messageIdMatch[1];
+                    }
+                }
+            }
+            return "";
+        }
+        
+        // 长轮询获取新消息
+        function startLongPolling() {
+            // 获取最后一条消息的ID
+            if (!lastMessageId) {
+                lastMessageId = getLastMessageId();
+            }
+            
+            const url = `/get_new_messages/${roomId}?last_message_id=${lastMessageId}`;
+            const xhr = new XMLHttpRequest();
+            
+            xhr.open('GET', url, true);
+            xhr.timeout = 30000; // 30秒超时
+            
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4) {
+                    if (xhr.status === 200) {
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            if (response.success && response.new_messages && response.new_messages.length > 0) {
+                                // 显示新消息
+                                displayNewMessages(response.new_messages);
+                                // 更新最后一条消息的ID
+                                lastMessageId = response.last_message_id;
+                            }
+                        } catch (e) {
+                            console.error('解析新消息失败:', e);
+                        }
+                    }
+                    // 继续长轮询
+                    longPollingTimeout = setTimeout(startLongPolling, 1000);
+                }
+            };
+            
+            xhr.ontimeout = function() {
+                // 超时后继续长轮询
+                longPollingTimeout = setTimeout(startLongPolling, 1000);
+            };
+            
+            xhr.onerror = function() {
+                // 网络错误后继续长轮询
+                longPollingTimeout = setTimeout(startLongPolling, 5000);
+            };
+            
+            xhr.send();
+        }
+        
+        // 显示新消息
+        function displayNewMessages(messages) {
+            const messagesArea = document.getElementById('messages-area');
+            let shouldScroll = false;
+            
+            // 检查是否已经在底部
+            const isAtBottom = messagesArea.scrollTop + messagesArea.clientHeight >= messagesArea.scrollHeight - 50;
+            
+            messages.forEach(message => {
+                if (message.is_撤回) {
+                    // 显示撤回消息
+                    const recallDiv = document.createElement('div');
+                    recallDiv.className = 'recall-message';
+                    recallDiv.textContent = '消息已撤回';
+                    messagesArea.appendChild(recallDiv);
+                } else {
+                    // 显示普通消息
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = `message ${message.is_own ? 'own' : 'other'}`;
+                    
+                    const messageContent = document.createElement('div');
+                    messageContent.className = 'message-content';
+                    
+                    const messageHeader = document.createElement('div');
+                    messageHeader.className = 'message-header';
+                    messageHeader.textContent = message.sender_name;
+                    
+                    const messageText = document.createElement('div');
+                    messageText.className = 'message-text';
+                    messageText.innerHTML = message.content.replace(/\n/g, '<br>');
+                    
+                    const messageTime = document.createElement('div');
+                    messageTime.className = 'message-time';
+                    messageTime.textContent = message.formatted_time;
+                    
+                    const recallBtn = document.createElement('button');
+                    recallBtn.className = 'recall-btn';
+                    recallBtn.textContent = '×';
+                    recallBtn.onclick = function() { recallMessage(message.id); };
+                    
+                    messageContent.appendChild(messageHeader);
+                    messageContent.appendChild(messageText);
+                    messageContent.appendChild(messageTime);
+                    messageContent.appendChild(recallBtn);
+                    messageDiv.appendChild(messageContent);
+                    messagesArea.appendChild(messageDiv);
+                }
+            });
+            
+            // 如果已经在底部，滚动到底部
+            if (isAtBottom) {
+                messagesArea.scrollTop = messagesArea.scrollHeight;
+            }
+        }
         
         // 显示邀请模态框
         function showInviteModal() {

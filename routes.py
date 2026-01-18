@@ -257,10 +257,29 @@ def manage_requests():
                 'request_time': format_time(req.created_at)
             })
     
+    # 获取当前用户收到的聊天室邀请请求
+    user_invitations = ChatRoomMember.query.filter_by(
+        user_id=session['user_id'],
+        status='pending'
+    ).all()
+    
+    formatted_invitations = []
+    for invite in user_invitations:
+        room = ChatRoom.query.get(invite.chat_room_id)
+        if room:
+            formatted_invitations.append({
+                'id': invite.id,
+                'room_id': room.id,
+                'room_name': room.name,
+                'request_time': format_time(invite.joined_at),
+                'role': invite.role
+            })
+    
     return render_template('manage_requests.html', 
                            pending_chat_requests=pending_chat_requests, 
                            room_names=room_names, 
                            friend_requests=formatted_friend_requests,
+                           user_invitations=formatted_invitations,
                            chat_rooms=chat_rooms)
 
 # 批准请求
@@ -326,6 +345,56 @@ def reject_request():
     db.session.commit()
     
     return redirect(url_for('manage_requests'))
+
+# 接受聊天室邀请
+@app.route('/accept_invitation', methods=['POST'])
+def accept_invitation():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登录'})
+    
+    invite_id = request.form.get('invite_id')
+    if not invite_id:
+        return jsonify({'success': False, 'message': '缺少邀请ID'})
+    
+    # 查找邀请
+    invitation = ChatRoomMember.query.get(invite_id)
+    if not invitation:
+        return jsonify({'success': False, 'message': '邀请不存在'})
+    
+    # 检查是否是当前用户的邀请
+    if invitation.user_id != session['user_id']:
+        return jsonify({'success': False, 'message': '没有权限处理此邀请'})
+    
+    # 接受邀请
+    invitation.status = 'approved'
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+# 拒绝聊天室邀请
+@app.route('/reject_invitation', methods=['POST'])
+def reject_invitation():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登录'})
+    
+    invite_id = request.form.get('invite_id')
+    if not invite_id:
+        return jsonify({'success': False, 'message': '缺少邀请ID'})
+    
+    # 查找邀请
+    invitation = ChatRoomMember.query.get(invite_id)
+    if not invitation:
+        return jsonify({'success': False, 'message': '邀请不存在'})
+    
+    # 检查是否是当前用户的邀请
+    if invitation.user_id != session['user_id']:
+        return jsonify({'success': False, 'message': '没有权限处理此邀请'})
+    
+    # 拒绝邀请（删除记录）
+    db.session.delete(invitation)
+    db.session.commit()
+    
+    return jsonify({'success': True})
 
 # 查找聊天室
 @app.route('/search_chat_room', methods=['GET', 'POST'])
@@ -534,6 +603,86 @@ def recall_message(message_id):
     db.session.commit()
     
     return jsonify({'success': True})
+
+# 长轮询获取新消息
+@app.route('/get_new_messages/<room_id>')
+def get_new_messages(room_id):
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登录'})
+    
+    # 检查是否为聊天室成员
+    member = ChatRoomMember.query.filter_by(
+        user_id=session['user_id'],
+        chat_room_id=room_id,
+        status='approved'
+    ).first()
+    
+    if not member:
+        return jsonify({'success': False, 'message': '不是聊天室成员'})
+    
+    # 获取最后一条消息的ID
+    last_message_id = request.args.get('last_message_id', '')
+    
+    # 获取聊天室所有成员
+    members = ChatRoomMember.query.filter_by(
+        chat_room_id=room_id,
+        status='approved'
+    ).all()
+    
+    # 创建用户ID到用户名的映射
+    user_map = {}
+    for member in members:
+        user = User.query.get(member.user_id)
+        user_map[user.id] = user.nickname or decode_username(user.username)
+    
+    # 长轮询等待新消息
+    start_time = time.time()
+    new_messages = []
+    
+    while time.time() - start_time < 25:  # 最长等待25秒
+        # 查询新消息
+        if last_message_id:
+            # 有最后一条消息ID，查询比它新的消息
+            messages = Message.query.filter(
+                Message.chat_room_id == room_id,
+                Message.id > last_message_id
+            ).order_by(Message.sent_at).all()
+        else:
+            # 没有最后一条消息ID，查询所有消息
+            messages = Message.query.filter_by(
+                chat_room_id=room_id
+            ).order_by(Message.sent_at).all()
+        
+        if messages:
+            # 格式化消息
+            new_messages = []
+            for message in messages:
+                new_messages.append({
+                    'id': message.id,
+                    'sender_id': message.sender_id,
+                    'sender_name': user_map.get(message.sender_id, message.sender_id),
+                    'content': message.content,
+                    'formatted_time': format_time(message.sent_at),
+                    'is_撤回': message.is_撤回,
+                    'is_own': message.sender_id == session['user_id']
+                })
+            break
+        
+        # 没有新消息，等待一段时间
+        time.sleep(1)
+    
+    # 获取最后一条消息的ID
+    last_id = ""
+    if new_messages:
+        last_id = new_messages[-1]['id']
+    elif last_message_id:
+        last_id = last_message_id
+    
+    return jsonify({
+        'success': True,
+        'new_messages': new_messages,
+        'last_message_id': last_id
+    })
 
 # 获取聊天室成员
 @app.route('/get_chat_room_members/<room_id>')

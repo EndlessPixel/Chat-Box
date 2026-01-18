@@ -93,15 +93,39 @@
                                     <div class="request-time">{{ request.request_time }}</div>
                                 </div>
                                 <div class="request-actions">
-                                        <button type="button" class="approve-btn" onclick="handleFriendRequest('{{ request.id }}', 'accept')">接受</button>
-                                        <button type="button" class="reject-btn" onclick="handleFriendRequest('{{ request.id }}', 'reject')">拒绝</button>
-                                    </div>
+                                    <button type="button" class="approve-btn" onclick="handleFriendRequest('{{ request.id }}', 'accept')">接受</button>
+                                    <button type="button" class="reject-btn" onclick="handleFriendRequest('{{ request.id }}', 'reject')">拒绝</button>
+                                </div>
                             </div>
                         {% endfor %}
                     </div>
                 {% else %}
                     <div class="no-requests">
                         <p>暂无好友请求</p>
+                    </div>
+                {% endif %}
+                
+                <!-- 我的聊天室邀请 -->
+                <h2 class="section-title" style="margin-top: 2rem;">我的聊天室邀请</h2>
+                {% if user_invitations %}
+                    <div class="invitations-section">
+                        {% for invitation in user_invitations %}
+                            <div class="request-item">
+                                <div class="request-info">
+                                    <div class="username">{{ invitation.room_name }}</div>
+                                    <div class="request-time">{{ invitation.request_time }}</div>
+                                    <div class="request-time">角色：{{ '管理员' if invitation.role == 'admin' else '普通成员' }}</div>
+                                </div>
+                                <div class="request-actions">
+                                    <button type="button" class="approve-btn" onclick="acceptInvitation('{{ invitation.id }}')">接受</button>
+                                    <button type="button" class="reject-btn" onclick="rejectInvitation('{{ invitation.id }}')">拒绝</button>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="no-requests">
+                        <p>暂无聊天室邀请</p>
                     </div>
                 {% endif %}
             </div>
@@ -168,6 +192,34 @@
                 }
             };
             xhr.send(`request_id=${requestId}`);
+        }
+        
+        // 接受聊天室邀请
+        function acceptInvitation(inviteId) {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/accept_invitation', true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    location.reload();
+                    showToast('邀请已接受', 'success');
+                }
+            };
+            xhr.send(`invite_id=${inviteId}`);
+        }
+        
+        // 拒绝聊天室邀请
+        function rejectInvitation(inviteId) {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/reject_invitation', true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    location.reload();
+                    showToast('邀请已拒绝', 'info');
+                }
+            };
+            xhr.send(`invite_id=${inviteId}`);
         }
     </script>
 </body>
