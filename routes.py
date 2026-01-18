@@ -31,6 +31,9 @@ def validate_password(password):
         return False, '密码必须包含数字'
     return True, '密码符合要求'
 
+from functools import lru_cache
+
+# 注意：使用lru_cache时，参数必须是可哈希类型，且缓存会在应用重启时清空
 def get_user_chat_rooms(user_id):
     # 获取当前用户的聊天室列表
     return ChatRoom.query.join(ChatRoomMember).filter(
@@ -482,7 +485,10 @@ def chat_room(room_id):
         message.formatted_time = format_time(message.sent_at)
         message.sender_name = user_map.get(message.sender_id, message.sender_id)
     
-    return render_template('chat_room.html', room=room, messages=messages, member=member)
+    # 获取用户的聊天室列表，用于侧边栏显示
+    chat_rooms = get_user_chat_rooms(session['user_id'])
+    
+    return render_template('chat_room.html', room=room, messages=messages, member=member, chat_rooms=chat_rooms)
 
 # 邀请用户加入聊天室
 @app.route('/invite_user/<room_id>', methods=['POST'])
@@ -620,7 +626,7 @@ def get_new_messages(room_id):
     if not member:
         return jsonify({'success': False, 'message': '不是聊天室成员'})
     
-    # 获取最后一条消息的ID
+    # 获取参数
     last_message_id = request.args.get('last_message_id', '')
     
     # 获取聊天室所有成员
@@ -639,19 +645,28 @@ def get_new_messages(room_id):
     start_time = time.time()
     new_messages = []
     
+    # 获取最后一条消息的发送时间
+    last_sent_at = 0
+    if last_message_id:
+        # 查找最后一条消息
+        last_message = Message.query.get(last_message_id)
+        if last_message:
+            last_sent_at = last_message.sent_at
+    
     while time.time() - start_time < 25:  # 最长等待25秒
         # 查询新消息
-        if last_message_id:
-            # 有最后一条消息ID，查询比它新的消息
+        if last_sent_at > 0:
+            # 有最后一条消息的发送时间，查询比它新的消息
             messages = Message.query.filter(
                 Message.chat_room_id == room_id,
-                Message.id > last_message_id
+                Message.sent_at > last_sent_at
             ).order_by(Message.sent_at).all()
         else:
-            # 没有最后一条消息ID，查询所有消息
+            # 没有最后一条消息，查询最新的10条消息
             messages = Message.query.filter_by(
                 chat_room_id=room_id
-            ).order_by(Message.sent_at).all()
+            ).order_by(Message.sent_at.desc()).limit(10).all()
+            messages.reverse()  # 反转顺序，使最早的消息在最上面
         
         if messages:
             # 格式化消息

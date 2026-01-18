@@ -161,8 +161,7 @@
                     if (response.success) {
                         input.value = '';
                         updateMessageSize();
-                        // 这里应该添加消息到聊天区域，暂时刷新页面
-                        location.reload();
+                        // 消息发送成功，长轮询会自动获取新消息，无需刷新页面
                         showToast('消息发送成功', 'success');
                     } else {
                         showToast(response.message, 'error');
@@ -181,8 +180,14 @@
                     if (xhr.readyState === 4 && xhr.status === 200) {
                         const response = JSON.parse(xhr.responseText);
                         if (response.success) {
-                            location.reload();
+                            // 撤回成功，长轮询会自动获取更新，无需刷新页面
                             showToast('消息撤回成功', 'success');
+                            // 立即重新开始长轮询，获取最新消息
+                            if (longPollingTimeout) {
+                                clearTimeout(longPollingTimeout);
+                            }
+                            lastMessageId = "";
+                            startLongPolling();
                         } else {
                             showToast(response.message, 'error');
                         }
@@ -215,35 +220,44 @@
             startLongPolling();
         };
         
-        // 存储最后一条消息的ID，用于长轮询
+        // 存储最后一条消息的ID和发送时间，用于长轮询
         let lastMessageId = "";
+        let lastMessageSentAt = 0;
         let longPollingTimeout = null;
+        // 标记是否为初始加载完成
+        let isInitialLoadComplete = false;
         
-        // 获取最后一条消息的ID
-        function getLastMessageId() {
+        // 获取所有初始消息的ID集合
+        function getInitialMessageIds() {
+            const messageIds = new Set();
             const messages = document.querySelectorAll('.message');
-            if (messages.length > 0) {
-                const lastMessage = messages[messages.length - 1];
-                const messageContent = lastMessage.querySelector('.message-content');
+            messages.forEach(message => {
+                const messageContent = message.querySelector('.message-content');
                 const recallBtn = messageContent.querySelector('.recall-btn');
                 if (recallBtn) {
                     const onclickAttr = recallBtn.getAttribute('onclick');
                     const messageIdMatch = onclickAttr.match(/recallMessage\('([^']+)\)/);
                     if (messageIdMatch && messageIdMatch[1]) {
-                        return messageIdMatch[1];
+                        messageIds.add(messageIdMatch[1]);
                     }
                 }
+            });
+            return messageIds;
+        }
+        
+        // 获取最后一条消息的发送时间
+        function getLastMessageSentAt() {
+            const messages = document.querySelectorAll('.message');
+            if (messages.length > 0) {
+                // 初始消息是按时间顺序渲染的，最后一条消息就是最新的
+                return time.time() * 1000; // 返回当前时间的毫秒数，确保只获取之后的消息
             }
-            return "";
+            return 0;
         }
         
         // 长轮询获取新消息
         function startLongPolling() {
-            // 获取最后一条消息的ID
-            if (!lastMessageId) {
-                lastMessageId = getLastMessageId();
-            }
-            
+            // 构建请求URL
             const url = `/get_new_messages/${roomId}?last_message_id=${lastMessageId}`;
             const xhr = new XMLHttpRequest();
             
@@ -259,7 +273,9 @@
                                 // 显示新消息
                                 displayNewMessages(response.new_messages);
                                 // 更新最后一条消息的ID
-                                lastMessageId = response.last_message_id;
+                                if (response.new_messages.length > 0) {
+                                    lastMessageId = response.last_message_id;
+                                }
                             }
                         } catch (e) {
                             console.error('解析新消息失败:', e);
