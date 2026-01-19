@@ -1,0 +1,74 @@
+<div class="sidebar">
+    <div class="sidebar-header">
+        <h1>ChatBox</h1>
+    </div>
+    <div class="sidebar-nav">
+        <div class="nav-item">
+            <a>{{ session['username'] }} 欢迎回来</a>
+        </div>
+    </div>
+    <div class="sidebar-nav">
+        <div class="nav-item">
+            <a href="/create_chat_room">
+                <i class="fas fa-plus-circle"></i> 创建聊天室
+            </a>
+        </div>
+        <div class="nav-item">
+            <a href="/search_chat_room">
+                <i class="fas fa-search"></i> 查找聊天室
+            </a>
+        </div>
+        <div class="nav-item">
+            <a href="/manage_requests">
+                <i class="fas fa-check-circle"></i> 审核请求
+            </a>
+        </div>
+        <div class="nav-item">
+            <a href="/search_user">
+                <i class="fas fa-users"></i> 搜索用户
+            </a>
+        </div>
+        <div class="nav-item">
+            <a href="/edit_profile">
+                <i class="fas fa-edit"></i> 编辑个人信息
+            </a>
+        </div>
+        <div class="nav-item">
+            <a href="/change_password">
+                <i class="fas fa-key"></i> 修改密码
+            </a>
+        </div>
+        <div class="nav-item">
+            <a href="/logout">
+                <i class="fas fa-sign-out-alt"></i> 退出登录
+            </a>
+        </div>
+    </div>
+    <div class="chat-rooms">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h2>我的聊天室</h2>
+            <div class="notification-toggle">
+                <label class="switch">
+                    <input type="checkbox" id="notification-toggle" checked>
+                    <span class="slider round"></span>
+                </label>
+                <span>通知</span>
+            </div>
+        </div>
+        {% if chat_rooms %}
+        {% for room in chat_rooms %}
+        <div class="room-item" data-room-id="{{ room.id }}">
+            <div style="position: relative;">
+                <a href="/chat_room/{{ room.id }}"
+                    class="room-link {% if current_room and room.id == current_room.id %}active{% endif %}">{{ room.name
+                    }}</a>
+                <span class="unread-badge" style="display: none;">0</span>
+                <button class="clear-badge-btn" title="清除未读">×</button>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p>暂无聊天室</p>
+        {% endif %}
+    </div>
+</div>

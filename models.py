@@ -74,3 +74,36 @@ class Friendship(db.Model):
     
     def __repr__(self):
         return f'<Friendship {self.user1_id} & {self.user2_id}>'
+
+# 违禁词表
+class ForbiddenWord(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    chat_room_id = db.Column(db.String(36), db.ForeignKey('chat_room.id'), nullable=False)
+    word = db.Column(db.String(100), nullable=False)
+    action = db.Column(db.String(20), nullable=False, default='block')  # block: 禁止发送, mask: 自动打码
+    created_at = db.Column(db.Integer, default=lambda: int(time.time()))
+    
+    def __repr__(self):
+        return f'<ForbiddenWord {self.word} in room {self.chat_room_id}>'
+
+# 聊天室链接设置表
+class ChatRoomLinkSetting(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    chat_room_id = db.Column(db.String(36), db.ForeignKey('chat_room.id'), nullable=False)
+    check_link_text = db.Column(db.Boolean, nullable=False, default=True)  # 是否检查链接文本中的违禁词
+    created_at = db.Column(db.Integer, default=lambda: int(time.time()))
+    updated_at = db.Column(db.Integer, default=lambda: int(time.time()), onupdate=lambda: int(time.time()))
+    
+    def __repr__(self):
+        return f'<ChatRoomLinkSetting room={self.chat_room_id} check_link_text={self.check_link_text}>'
+
+# 快捷短语表
+class QuickPhrase(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)  # 快捷短语内容
+    created_at = db.Column(db.Integer, default=lambda: int(time.time()))
+    updated_at = db.Column(db.Integer, default=lambda: int(time.time()), onupdate=lambda: int(time.time()))
+    
+    def __repr__(self):
+        return f'<QuickPhrase user={self.user_id} content={self.content[:20]}...>'

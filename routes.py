@@ -1,6 +1,7 @@
-from extensions import app, db
+from extensions import app, db, socketio
 from models import *
 from flask import render_template, request, redirect, url_for, session, jsonify
+from flask_socketio import emit, join_room, leave_room, disconnect
 import base64
 import hashlib
 import uuid
@@ -30,6 +31,103 @@ def validate_password(password):
     if not any(c.isdigit() for c in password):
         return False, '密码必须包含数字'
     return True, '密码符合要求'
+
+# 链接处理函数
+def process_links(content):
+    """
+    处理消息中的链接，只允许合法的<a>标签和href属性
+    :param content: 消息内容
+    :return: 处理后的内容
+    """
+    import re
+    
+    # 定义允许的链接正则表达式
+    allowed_url_pattern = r'^https?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(/\S*)?$'
+    
+    # 处理<a>标签，只保留href属性，且href必须是合法的http/https链接
+    def replace_link(match):
+        full_tag = match.group(0)
+        href_match = re.search(r'href=["\']([^"\']+)["\']', full_tag)
+        if href_match:
+            href = href_match.group(1)
+            # 检查href是否是合法的http/https链接
+            if re.match(allowed_url_pattern, href):
+                # 获取链接文本
+                text_match = re.search(r'>(.*?)<\/a>', full_tag, re.DOTALL)
+                link_text = text_match.group(1) if text_match else ''
+                # 只保留href属性，重新构建<a>标签
+                return f'<a href="{href}">{link_text}</a>'
+        # 非法链接，直接返回链接文本
+        text_match = re.search(r'>(.*?)<\/a>', full_tag, re.DOTALL)
+        if text_match:
+            return text_match.group(1)
+        return full_tag
+    
+    # 替换所有<a>标签
+    processed_content = re.sub(r'<a[^>]*>(.*?)<\/a>', replace_link, content, flags=re.DOTALL)
+    return processed_content
+
+# 违禁词处理函数
+def process_forbidden_words(content, room_id):
+    """
+    处理违禁词
+    :param content: 消息内容
+    :param room_id: 聊天室ID
+    :return: (处理后的内容, 是否允许发送)
+    """
+    # 获取当前聊天室的违禁词列表
+    forbidden_words = ForbiddenWord.query.filter_by(
+        chat_room_id=room_id
+    ).all()
+    
+    if not forbidden_words:
+        return content, True
+    
+    processed_content = content
+    
+    # 检查链接文本中的违禁词
+    link_setting = ChatRoomLinkSetting.query.filter_by(chat_room_id=room_id).first()
+    check_link_text = link_setting.check_link_text if link_setting else True
+    
+    if check_link_text:
+        # 直接检查所有内容，包括链接文本
+        for word in forbidden_words:
+            if word.word in processed_content:
+                if word.action == 'block':
+                    # 禁止发送
+                    return content, False
+                elif word.action == 'mask':
+                    # 自动打码，用*替换违禁词
+                    mask = '*' * len(word.word)
+                    processed_content = processed_content.replace(word.word, mask)
+    else:
+        # 只检查非链接文本中的违禁词
+        import re
+        
+        # 保存所有链接
+        links = re.findall(r'<a[^>]*>(.*?)<\/a>', processed_content, flags=re.DOTALL)
+        link_placeholders = [f'__LINK_PLACEHOLDER_{i}__' for i in range(len(links))]
+        
+        # 替换链接为占位符
+        for i, link in enumerate(links):
+            processed_content = processed_content.replace(f'<a href="{re.search(r"href=[\"\']([^\"\']+)[\"\']", link).group(1)}">{link.split(">").pop().split("<")[0]}</a>', link_placeholders[i])
+        
+        # 处理违禁词
+        for word in forbidden_words:
+            if word.word in processed_content:
+                if word.action == 'block':
+                    # 禁止发送
+                    return content, False
+                elif word.action == 'mask':
+                    # 自动打码，用*替换违禁词
+                    mask = '*' * len(word.word)
+                    processed_content = processed_content.replace(word.word, mask)
+        
+        # 恢复链接
+        for i, placeholder in enumerate(link_placeholders):
+            processed_content = processed_content.replace(placeholder, links[i])
+    
+    return processed_content, True
 
 # 注意：使用lru_cache时，参数必须是可哈希类型，且缓存会在应用重启时清空
 def get_user_chat_rooms(user_id):
@@ -214,6 +312,10 @@ def manage_requests():
         ChatRoomMember.status == 'approved'
     ).all()
     
+    # 只有管理员或所有者才能访问此页面
+    if not managed_rooms:
+        return redirect(url_for('chat'))
+    
     # 获取所有待审核请求
     pending_chat_requests = {}
     room_names = {}
@@ -225,10 +327,11 @@ def manage_requests():
         
         room_names[room.id] = room.name
         
-        # 获取该聊天室的待审核请求
-        requests = ChatRoomMember.query.filter_by(
-            chat_room_id=room.id,
-            status='pending'
+        # 获取该聊天室的待审核请求，排除自己的请求
+        requests = ChatRoomMember.query.filter(
+            ChatRoomMember.chat_room_id == room.id,
+            ChatRoomMember.status == 'pending',
+            ChatRoomMember.user_id != session['user_id']
         ).all()
         
         if requests:
@@ -303,6 +406,10 @@ def approve_request():
     if not member_request:
         return redirect(url_for('manage_requests'))
     
+    # 检查请求是否是当前用户自己的请求
+    if member_request.user_id == session['user_id']:
+        return redirect(url_for('manage_requests'))
+    
     # 检查当前用户是否有权限管理该聊天室
     current_member = ChatRoomMember.query.filter(
         ChatRoomMember.user_id == session['user_id'],
@@ -333,6 +440,10 @@ def reject_request():
     # 查找请求
     member_request = ChatRoomMember.query.get(request_id)
     if not member_request:
+        return redirect(url_for('manage_requests'))
+    
+    # 检查请求是否是当前用户自己的请求
+    if member_request.user_id == session['user_id']:
         return redirect(url_for('manage_requests'))
     
     # 检查当前用户是否有权限管理该聊天室
@@ -439,6 +550,18 @@ def join_chat_room(room_id):
     if existing_member:
         return redirect(url_for('chat'))
     
+    # 检查是否是聊天室的管理员或所有者
+    managed_room = ChatRoomMember.query.filter(
+        ChatRoomMember.user_id == session['user_id'],
+        ChatRoomMember.chat_room_id == room_id,
+        ChatRoomMember.role.in_(['owner', 'admin']),
+        ChatRoomMember.status == 'approved'
+    ).first()
+    
+    if managed_room:
+        # 已经是管理员或所有者，直接重定向到聊天页面
+        return redirect(url_for('chat'))
+    
     # 创建成员请求
     member = ChatRoomMember(
         user_id=session['user_id'],
@@ -491,7 +614,7 @@ def chat_room(room_id):
     # 获取用户的聊天室列表，用于侧边栏显示
     chat_rooms = get_user_chat_rooms(session['user_id'])
     
-    return render_template('chat_room.html', room=room, messages=messages, member=member, chat_rooms=chat_rooms)
+    return render_template('chat_room.html', room=room, messages=messages, member=member, chat_rooms=chat_rooms, current_room=room)
 
 # 邀请用户加入聊天室
 @app.route('/invite_user/<room_id>', methods=['POST'])
@@ -550,6 +673,108 @@ def invite_user(room_id):
     
     return redirect(url_for('chat_room', room_id=room_id))
 
+# 违禁词管理页面
+@app.route('/manage_forbidden_words/<room_id>')
+def manage_forbidden_words(room_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    # 检查当前用户是否有权限
+    current_member = ChatRoomMember.query.filter(
+        ChatRoomMember.user_id == session['user_id'],
+        ChatRoomMember.chat_room_id == room_id,
+        ChatRoomMember.role.in_(['owner', 'admin']),
+        ChatRoomMember.status == 'approved'
+    ).first()
+    
+    if not current_member:
+        return redirect(url_for('chat_room', room_id=room_id))
+    
+    # 获取聊天室信息
+    room = ChatRoom.query.get(room_id)
+    if not room:
+        return redirect(url_for('chat'))
+    
+    # 获取当前聊天室的违禁词列表
+    forbidden_words = ForbiddenWord.query.filter_by(
+        chat_room_id=room_id
+    ).all()
+    
+    # 获取用户的聊天室列表
+    chat_rooms = get_user_chat_rooms(session['user_id'])
+    
+    return render_template('manage_forbidden_words.html', room=room, forbidden_words=forbidden_words, chat_rooms=chat_rooms)
+
+# 添加违禁词
+@app.route('/add_forbidden_word/<room_id>', methods=['POST'])
+def add_forbidden_word(room_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    # 检查当前用户是否有权限
+    current_member = ChatRoomMember.query.filter(
+        ChatRoomMember.user_id == session['user_id'],
+        ChatRoomMember.chat_room_id == room_id,
+        ChatRoomMember.role.in_(['owner', 'admin']),
+        ChatRoomMember.status == 'approved'
+    ).first()
+    
+    if not current_member:
+        return redirect(url_for('chat_room', room_id=room_id))
+    
+    # 获取表单数据
+    word = request.form.get('word', '').strip()
+    action = request.form.get('action', 'block')
+    
+    if not word:
+        return redirect(url_for('manage_forbidden_words', room_id=room_id))
+    
+    # 检查违禁词是否已存在
+    existing_word = ForbiddenWord.query.filter(
+        ForbiddenWord.chat_room_id == room_id,
+        ForbiddenWord.word == word
+    ).first()
+    
+    if not existing_word:
+        # 创建新的违禁词
+        new_word = ForbiddenWord(
+            chat_room_id=room_id,
+            word=word,
+            action=action
+        )
+        db.session.add(new_word)
+        db.session.commit()
+    
+    return redirect(url_for('manage_forbidden_words', room_id=room_id))
+
+# 删除违禁词
+@app.route('/delete_forbidden_word/<word_id>', methods=['POST'])
+def delete_forbidden_word(word_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    # 查找违禁词
+    forbidden_word = ForbiddenWord.query.get(word_id)
+    if not forbidden_word:
+        return redirect(url_for('chat'))
+    
+    # 检查当前用户是否有权限
+    current_member = ChatRoomMember.query.filter(
+        ChatRoomMember.user_id == session['user_id'],
+        ChatRoomMember.chat_room_id == forbidden_word.chat_room_id,
+        ChatRoomMember.role.in_(['owner', 'admin']),
+        ChatRoomMember.status == 'approved'
+    ).first()
+    
+    if not current_member:
+        return redirect(url_for('chat_room', room_id=forbidden_word.chat_room_id))
+    
+    # 删除违禁词
+    db.session.delete(forbidden_word)
+    db.session.commit()
+    
+    return redirect(url_for('manage_forbidden_words', room_id=forbidden_word.chat_room_id))
+
 # 发送消息
 @app.route('/send_message', methods=['POST'])
 def send_message():
@@ -565,12 +790,23 @@ def send_message():
     if len(content.encode()) > 5 * 1024:
         return jsonify({'success': False, 'message': '消息大小超过5KB'})
     
+    # 处理链接
+    content = process_links(content)
+    
+    # 处理违禁词（仅聊天室消息需要检查违禁词）
+    if chat_room_id:
+        processed_content, is_allowed = process_forbidden_words(content, chat_room_id)
+        if not is_allowed:
+            return jsonify({'success': False, 'message': '消息包含违禁词，禁止发送'})
+    else:
+        processed_content = content
+    
     # 创建消息
     new_message = Message(
         sender_id=session['user_id'],
         chat_room_id=chat_room_id,
         friend_id=friend_id,
-        content=content,
+        content=processed_content,
         reply_to=reply_to
     )
     
@@ -611,9 +847,210 @@ def recall_message(message_id):
     message.is_撤回 = True
     db.session.commit()
     
+    # 通知所有客户端消息已撤回
+    if message.chat_room_id:
+        # 聊天室消息，广播给所有房间成员
+        socketio.emit('message_recalled', {
+            'message_id': message.id,
+            'chat_room_id': message.chat_room_id
+        }, room=message.chat_room_id)
+    
     return jsonify({'success': True})
 
-# 长轮询获取新消息
+# WebSocket 事件处理
+
+# 存储用户连接信息，key为user_id，value为sid
+user_sockets = {}
+# 存储房间成员，key为room_id，value为set of user_id
+room_members = {}
+
+# 连接事件
+@socketio.on('connect')
+def handle_connect():
+    print(f"客户端连接: {request.sid}")
+    emit('connect_success', {'message': '连接成功'})
+
+# 断开连接事件
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f"客户端断开: {request.sid}")
+    # 移除用户连接信息
+    for user_id, sid in list(user_sockets.items()):
+        if sid == request.sid:
+            del user_sockets[user_id]
+            # 从所有房间移除用户
+            for room_id, members in list(room_members.items()):
+                if user_id in members:
+                    members.remove(user_id)
+            break
+
+# 心跳事件 - 客户端发送ping
+@socketio.on('ping')
+def handle_ping():
+    emit('pong')
+
+# 加入聊天室
+@socketio.on('join_room')
+def handle_join_room(data):
+    room_id = data.get('room_id')
+    user_id = data.get('user_id')
+    
+    if not room_id or not user_id:
+        emit('error', {'message': '缺少必要参数'})
+        return
+    
+    # 验证用户是否有权限加入聊天室
+    member = ChatRoomMember.query.filter_by(
+        user_id=user_id,
+        chat_room_id=room_id,
+        status='approved'
+    ).first()
+    
+    if not member:
+        emit('error', {'message': '没有权限加入该聊天室'})
+        return
+    
+    # 加入房间
+    join_room(room_id)
+    
+    # 存储连接信息
+    user_sockets[user_id] = request.sid
+    
+    # 更新房间成员列表
+    if room_id not in room_members:
+        room_members[room_id] = set()
+    room_members[room_id].add(user_id)
+    
+    print(f"用户 {user_id} 加入聊天室 {room_id}")
+    emit('join_success', {'room_id': room_id, 'user_id': user_id})
+
+# 发送消息
+@socketio.on('send_message')
+def handle_send_message(data):
+    room_id = data.get('room_id')
+    user_id = data.get('user_id')
+    content = data.get('content', '').strip()
+    
+    if not room_id or not user_id or not content:
+        emit('error', {'message': '缺少必要参数'})
+        return
+    
+    # 验证用户是否在聊天室中
+    member = ChatRoomMember.query.filter_by(
+        user_id=user_id,
+        chat_room_id=room_id,
+        status='approved'
+    ).first()
+    
+    if not member:
+        emit('error', {'message': '没有权限发送消息'})
+        return
+    
+    # 检查消息大小
+    if len(content) > 5 * 1024:
+        emit('error', {'message': '消息长度超过限制'})
+        return
+    
+    # 处理链接
+    content = process_links(content)
+    
+    # 处理违禁词
+    processed_content, is_allowed = process_forbidden_words(content, room_id)
+    if not is_allowed:
+        emit('error', {'message': '消息包含违禁词，禁止发送'})
+        return
+    
+    # 创建消息
+    new_message = Message(
+        id=str(uuid.uuid4()),
+        sender_id=user_id,
+        chat_room_id=room_id,
+        content=processed_content,
+        sent_at=time.time(),
+        is_撤回=False
+    )
+    
+    db.session.add(new_message)
+    db.session.commit()
+    
+    # 获取发送者信息
+    sender = User.query.get(user_id)
+    sender_name = sender.nickname or decode_username(sender.username)
+    
+    # 格式化消息，不包含is_own字段，由客户端根据自己的user_id判断
+    formatted_message = {
+        'id': new_message.id,
+        'sender_id': new_message.sender_id,
+        'chat_room_id': new_message.chat_room_id,
+        'content': new_message.content,
+        'sent_at': new_message.sent_at,
+        'is_撤回': new_message.is_撤回,
+        'sender_name': sender_name,
+        'formatted_time': format_time(new_message.sent_at)
+    }
+    
+    # 发送消息给房间内所有成员
+    emit('new_message', formatted_message, room=room_id)
+    
+    print(f"用户 {user_id} 在聊天室 {room_id} 发送消息: {content}")
+
+# 撤回消息
+@socketio.on('recall_message')
+def handle_recall_message(data):
+    message_id = data.get('message_id')
+    user_id = data.get('user_id')
+    
+    if not message_id or not user_id:
+        emit('error', {'message': '缺少必要参数'})
+        return
+    
+    # 查找消息
+    message = Message.query.get(message_id)
+    if not message:
+        emit('error', {'message': '消息不存在'})
+        return
+    
+    # 验证权限（只有发送者可以撤回消息）
+    if message.sender_id != user_id:
+        emit('error', {'message': '没有权限撤回该消息'})
+        return
+    
+    # 更新消息状态
+    message.is_撤回 = True
+    db.session.commit()
+    
+    # 通知房间内所有成员
+    emit('message_recalled', {
+        'message_id': message_id,
+        'chat_room_id': message.chat_room_id
+    }, room=message.chat_room_id)
+    
+    print(f"用户 {user_id} 撤回消息: {message_id}")
+
+# 离开聊天室
+@socketio.on('leave_room')
+def handle_leave_room(data):
+    room_id = data.get('room_id')
+    user_id = data.get('user_id')
+    
+    if not room_id or not user_id:
+        emit('error', {'message': '缺少必要参数'})
+        return
+    
+    # 离开房间
+    leave_room(room_id)
+    
+    # 更新房间成员列表
+    if room_id in room_members:
+        if user_id in room_members[room_id]:
+            room_members[room_id].remove(user_id)
+            if not room_members[room_id]:
+                del room_members[room_id]
+    
+    print(f"用户 {user_id} 离开聊天室 {room_id}")
+    emit('leave_success', {'room_id': room_id, 'user_id': user_id})
+
+# 长轮询获取新消息（保留旧API，确保兼容性）
 @app.route('/get_new_messages/<room_id>')
 def get_new_messages(room_id):
     if 'user_id' not in session:
@@ -838,15 +1275,77 @@ def edit_profile():
     chat_rooms = get_user_chat_rooms(session['user_id'])
     
     user = User.query.get(session['user_id'])
+    # 获取用户的快捷短语
+    quick_phrases = QuickPhrase.query.filter_by(user_id=session['user_id']).order_by(QuickPhrase.created_at).all()
     
     if request.method == 'POST':
         user.nickname = request.form['nickname']
         user.bio = request.form.get('bio', '')
         
         db.session.commit()
-        return redirect(url_for('chat'))
+        return redirect(url_for('edit_profile'))
     
-    return render_template('edit_profile.html', user=user, chat_rooms=chat_rooms)
+    return render_template('edit_profile.html', user=user, chat_rooms=chat_rooms, quick_phrases=quick_phrases)
+
+# 添加快捷短语
+@app.route('/add_quick_phrase', methods=['POST'])
+def add_quick_phrase():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    phrase = request.form.get('phrase', '').strip()
+    if not phrase:
+        return redirect(url_for('edit_profile'))
+    
+    # 添加快捷短语
+    new_phrase = QuickPhrase(
+        user_id=session['user_id'],
+        content=phrase
+    )
+    db.session.add(new_phrase)
+    db.session.commit()
+    
+    return redirect(url_for('edit_profile'))
+
+# 删除快捷短语
+@app.route('/delete_quick_phrase/<phrase_id>', methods=['POST'])
+def delete_quick_phrase(phrase_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    # 查找快捷短语
+    quick_phrase = QuickPhrase.query.get(phrase_id)
+    if not quick_phrase:
+        return redirect(url_for('edit_profile'))
+    
+    # 检查是否为当前用户的快捷短语
+    if quick_phrase.user_id != session['user_id']:
+        return redirect(url_for('edit_profile'))
+    
+    # 删除快捷短语
+    db.session.delete(quick_phrase)
+    db.session.commit()
+    
+    return redirect(url_for('edit_profile'))
+
+# 获取用户快捷短语
+@app.route('/get_quick_phrases')
+def get_quick_phrases():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登录'})
+    
+    # 获取用户的快捷短语
+    quick_phrases = QuickPhrase.query.filter_by(user_id=session['user_id']).order_by(QuickPhrase.created_at).all()
+    
+    # 格式化返回数据
+    phrases_list = []
+    for phrase in quick_phrases:
+        phrases_list.append({
+            'id': phrase.id,
+            'content': phrase.content
+        })
+    
+    return jsonify({'success': True, 'phrases': phrases_list})
 
 # 修改密码
 @app.route('/change_password', methods=['GET', 'POST'])

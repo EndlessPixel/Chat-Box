@@ -6,78 +6,244 @@
     <title>聊天室 - 聊天</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/static/styles.css">
+    <script>
+        // 页面加载时添加动画类
+        window.addEventListener('DOMContentLoaded', function() {
+            // 只在页面刷新时添加动画，而不是在页面跳转时
+            let isRefresh = false;
+            try {
+                // 现代浏览器 API
+                const navigationEntry = performance.getEntriesByType('navigation')[0];
+                isRefresh = navigationEntry.type === 'reload' || navigationEntry.type === 'navigate';
+            } catch (e) {
+                // 旧浏览器 fallback
+                isRefresh = performance.navigation.type === 0 || performance.navigation.type === 1;
+            }
+            
+            if (isRefresh) {
+                // 添加侧边栏动画
+                document.querySelector('.sidebar').classList.add('animate');
+                document.querySelector('.sidebar-header').classList.add('animate');
+                document.querySelector('.sidebar-nav').classList.add('animate');
+                document.querySelector('.chat-rooms').classList.add('animate');
+                document.querySelector('.chat-rooms h2').classList.add('animate');
+                
+                // 添加导航项动画
+                const navItems = document.querySelectorAll('.nav-item');
+                navItems.forEach(item => {
+                    item.classList.add('animate');
+                });
+                
+                // 添加聊天室项动画
+                const roomItems = document.querySelectorAll('.room-item');
+                roomItems.forEach(item => {
+                    item.classList.add('animate');
+                });
+                
+                // 添加当前聊天室高亮动画
+                const activeRoom = document.querySelector('.room-item a.active');
+                if (activeRoom) {
+                    activeRoom.classList.add('animate');
+                }
+            }
+        });
+    </script>
 </head>
 <body>
-    <div class="sidebar">
-        <div class="sidebar-header">
-            <h1>聊天室</h1>
-        </div>
-        <div class="sidebar-nav">
-            <div class="nav-item">
-                <a href="/create_chat_room">
-                    <i class="fas fa-plus-circle"></i> 创建聊天室
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="/search_chat_room">
-                    <i class="fas fa-search"></i> 查找聊天室
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="/manage_requests">
-                    <i class="fas fa-check-circle"></i> 审核请求
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="/search_user">
-                    <i class="fas fa-users"></i> 搜索用户
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="/edit_profile">
-                    <i class="fas fa-edit"></i> 编辑个人信息
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="/change_password">
-                    <i class="fas fa-key"></i> 修改密码
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="/logout">
-                    <i class="fas fa-sign-out-alt"></i> 退出登录
-                </a>
-            </div>
-        </div>
-        <div class="chat-rooms">
-            <h2>我的聊天室</h2>
-            {% if chat_rooms %}
-                {% for room in chat_rooms %}
-                    <div class="room-item">
-                        <a href="/chat_room/{{ room.id }}">{{ room.name }}</a>
-                    </div>
-                {% endfor %}
-            {% else %}
-                <p>暂无聊天室</p>
-            {% endif %}
-        </div>
-    </div>
+    {% include '_sidebar.html' %}
     
     <div class="main-content">
         <div class="main-header">
-            <h2>欢迎，{{ session['username'] }}</h2>
-            <div class="user-info">
-                <span>UID: {{ user.id }}</span>
-                <a href="/edit_profile">编辑信息</a>
-                <a href="/logout">退出</a>
-            </div>
+            <h2>回来欢迎，{{ session['username'] }}</h2>
         </div>
         <div class="main-body">
             <div class="welcome-message">
-                <h2>欢迎使用聊天室</h2>
+                <h2>欢迎使用ChatBox</h2>
                 <p>选择一个聊天室开始聊天，或创建新的聊天室</p>
             </div>
         </div>
     </div>
-</body>
+<script>
+        // 通知开关状态管理
+        const notificationToggle = document.getElementById('notification-toggle');
+        
+        // 从localStorage加载通知开关状态
+        const loadNotificationSetting = () => {
+            const savedSetting = localStorage.getItem('notificationEnabled');
+            if (savedSetting !== null) {
+                notificationToggle.checked = JSON.parse(savedSetting);
+            }
+        };
+        
+        // 保存通知开关状态到localStorage
+        const saveNotificationSetting = () => {
+            localStorage.setItem('notificationEnabled', JSON.stringify(notificationToggle.checked));
+        };
+        
+        // 初始化通知开关
+        loadNotificationSetting();
+        notificationToggle.addEventListener('change', saveNotificationSetting);
+        
+        // 未读消息计数管理
+        const getUnreadCount = (roomId) => {
+            return parseInt(localStorage.getItem(`unread_${roomId}`) || '0');
+        };
+        
+        const setUnreadCount = (roomId, count) => {
+            localStorage.setItem(`unread_${roomId}`, count.toString());
+        };
+        
+        const incrementUnreadCount = (roomId) => {
+            const count = getUnreadCount(roomId);
+            setUnreadCount(roomId, count + 1);
+        };
+        
+        const resetUnreadCount = (roomId) => {
+            setUnreadCount(roomId, 0);
+        };
+        
+        // 更新未读消息徽章显示
+        const updateUnreadBadge = (roomId) => {
+            const roomItem = document.querySelector(`[data-room-id="${roomId}"]`);
+            if (!roomItem) return;
+            
+            const badge = roomItem.querySelector('.unread-badge');
+            const count = getUnreadCount(roomId);
+            
+            if (count > 0) {
+                badge.style.display = 'flex';
+                if (count > 9) {
+                    badge.textContent = '9+';
+                } else {
+                    badge.textContent = count;
+                }
+            } else {
+                badge.style.display = 'none';
+            }
+        };
+        
+        // 更新所有未读消息徽章
+        const updateAllUnreadBadges = () => {
+            const roomItems = document.querySelectorAll('.room-item');
+            roomItems.forEach(item => {
+                const roomId = item.dataset.roomId;
+                updateUnreadBadge(roomId);
+            });
+        };
+        
+        // 添加高亮效果
+        const addHighlight = (roomId) => {
+            const roomItem = document.querySelector(`[data-room-id="${roomId}"]`);
+            if (roomItem) {
+                roomItem.classList.add('highlighted');
+            }
+        };
+        
+        // 移除高亮效果
+        const removeHighlight = (roomId) => {
+            const roomItem = document.querySelector(`[data-room-id="${roomId}"]`);
+            if (roomItem) {
+                roomItem.classList.remove('highlighted');
+            }
+        };
+        
+        // 清除未读和高亮
+        const clearRoomNotifications = (roomId) => {
+            resetUnreadCount(roomId);
+            removeHighlight(roomId);
+            updateUnreadBadge(roomId);
+        };
+        
+        // 为每个聊天室项添加数据属性和事件监听
+        const initRoomItems = () => {
+            const roomItems = document.querySelectorAll('.room-item');
+            roomItems.forEach(item => {
+                const link = item.querySelector('.room-link');
+                const roomId = link.href.split('/').pop();
+                
+                // 添加数据属性
+                item.dataset.roomId = roomId;
+                
+                // 为链接添加点击事件，清除通知
+                link.addEventListener('click', () => {
+                    clearRoomNotifications(roomId);
+                });
+                
+                // 为清除按钮添加事件监听
+                const clearBtn = item.querySelector('.clear-badge-btn');
+                if (clearBtn) {
+                    clearBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        clearRoomNotifications(roomId);
+                    });
+                }
+            });
+        };
+        
+        // 按最新消息时间排序聊天室
+        const sortChatRoomsByLastMessage = () => {
+            // 这里需要实现按最新消息时间排序的逻辑
+            // 由于我们没有实际的最新消息时间数据，这里仅作为示例
+            const chatRoomsContainer = document.querySelector('.chat-rooms');
+            const roomItems = Array.from(document.querySelectorAll('.room-item'));
+            
+            // 这里应该根据实际的最新消息时间进行排序
+            // 目前我们仅按名称排序作为示例
+            roomItems.sort((a, b) => {
+                const nameA = a.querySelector('.room-link').textContent.toLowerCase();
+                const nameB = b.querySelector('.room-link').textContent.toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+            
+            // 重新添加到容器中
+            roomItems.forEach(item => {
+                chatRoomsContainer.appendChild(item);
+            });
+        };
+        
+        // WebSocket连接，用于接收新消息通知
+        let socket = null;
+        
+        const initWebSocket = () => {
+            try {
+                socket = io();
+                
+                socket.on('connect', () => {
+                    console.log('WebSocket连接成功');
+                    // 加入所有聊天室（这里简化处理，实际应该加入用户所在的所有聊天室）
+                    const roomIds = Array.from(document.querySelectorAll('.room-item')).map(item => item.dataset.roomId);
+                    roomIds.forEach(roomId => {
+                        socket.emit('join_room', {
+                            room_id: roomId,
+                            user_id: "{{ session['user_id'] }}"
+                        });
+                    });
+                });
+                
+                socket.on('new_message', (message) => {
+                    if (notificationToggle.checked) {
+                        // 增加未读计数
+                        incrementUnreadCount(message.chat_room_id);
+                        // 添加高亮效果
+                        addHighlight(message.chat_room_id);
+                        // 更新未读徽章
+                        updateUnreadBadge(message.chat_room_id);
+                        // 重新排序聊天室
+                        sortChatRoomsByLastMessage();
+                    }
+                });
+                
+            } catch (error) {
+                console.error('WebSocket初始化失败:', error);
+            }
+        };
+        
+        // 初始化
+        window.addEventListener('DOMContentLoaded', () => {
+            initRoomItems();
+            updateAllUnreadBadges();
+            initWebSocket();
+        });
+    </script>
+    </body>
 </html>

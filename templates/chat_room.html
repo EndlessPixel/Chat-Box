@@ -6,58 +6,72 @@
     <title>{{ room.name }} - 聊天室</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        // 页面加载时添加动画类
+        window.addEventListener('DOMContentLoaded', function() {
+            // 只在页面刷新时添加动画，而不是在页面跳转时
+            let isRefresh = false;
+            try {
+                // 现代浏览器 API
+                const navigationEntry = performance.getEntriesByType('navigation')[0];
+                isRefresh = navigationEntry.type === 'reload' || navigationEntry.type === 'navigate';
+            } catch (e) {
+                // 旧浏览器 fallback
+                isRefresh = performance.navigation.type === 0 || performance.navigation.type === 1;
+            }
+            
+            if (isRefresh) {
+                // 添加侧边栏动画
+                document.querySelector('.sidebar').classList.add('animate');
+                document.querySelector('.sidebar-header').classList.add('animate');
+                document.querySelector('.sidebar-nav').classList.add('animate');
+                document.querySelector('.chat-rooms').classList.add('animate');
+                document.querySelector('.chat-rooms h2').classList.add('animate');
+                
+                // 添加导航项动画
+                const navItems = document.querySelectorAll('.nav-item');
+                navItems.forEach(item => {
+                    item.classList.add('animate');
+                });
+                
+                // 添加聊天室项动画
+                const roomItems = document.querySelectorAll('.room-item');
+                roomItems.forEach(item => {
+                    item.classList.add('animate');
+                });
+                
+                // 添加当前聊天室高亮动画
+                const activeRoom = document.querySelector('.room-item a.active');
+                if (activeRoom) {
+                    activeRoom.classList.add('animate');
+                }
+            }
+        });
+    </script>
 </head>
 <body>
-    <div class="sidebar">
-        <div class="sidebar-header">
-            <h1>聊天室</h1>
-        </div>
-        <div class="sidebar-nav">
-            <div class="nav-item">
-                <a href="/create_chat_room">创建聊天室</a>
-            </div>
-            <div class="nav-item">
-                <a href="/search_chat_room">查找聊天室</a>
-            </div>
-            <div class="nav-item">
-                <a href="/manage_requests">审核请求</a>
-            </div>
-            <div class="nav-item">
-                <a href="/search_user">搜索用户</a>
-            </div>
-            <div class="nav-item">
-                <a href="/edit_profile">编辑个人信息</a>
-            </div>
-            <div class="nav-item">
-                <a href="/change_password">修改密码</a>
-            </div>
-            <div class="nav-item">
-                <a href="/logout">退出登录</a>
-            </div>
-        </div>
-        <div class="chat-rooms">
-            <h2>我的聊天室</h2>
-            {% if chat_rooms %}
-                {% for room in chat_rooms %}
-                    <div class="room-item">
-                        <a href="/chat_room/{{ room.id }}">{{ room.name }}</a>
-                    </div>
-                {% endfor %}
-            {% else %}
-                <p>暂无聊天室</p>
-            {% endif %}
-        </div>
-    </div>
+    {% include '_sidebar.html' %}
     
     <div class="main-content">
         <div class="main-header">
             <div class="room-info">
                 <h2>{{ room.name }}</h2>
+                <span class="user-role">
+                    {% if member.role == 'owner' %}
+                        聊天室主
+                    {% elif member.role == 'admin' %}
+                        管理员
+                    {% else %}
+                        普通成员
+                    {% endif %}
+                </span>
                 {% if member.role == 'owner' %}
                     <a href="/edit_chat_room/{{ room.id }}" class="edit-link">编辑</a>
                 {% endif %}
                 {% if member.role in ['owner', 'admin'] %}
                     <button class="invite-btn" onclick="showInviteModal()">邀请用户</button>
+                    <a href="/manage_forbidden_words/{{ room.id }}" class="forbidden-words-link">管理违禁词</a>
                 {% endif %}
             </div>
             <a href="/chat" class="back-link">返回</a>
@@ -107,7 +121,16 @@
                                 </div>
                                 <div class="message-text">{{ message.content | replace('\n', '<br>') }}</div>
                                 <div class="message-time">{{ message.formatted_time }}</div>
-                                <button class="recall-btn" onclick="recallMessage('{{ message.id }}')">×</button>
+                                <!-- 消息操作菜单 -->
+                                <div class="message-menu-container">
+                                    <button class="menu-btn" onclick="toggleMessageMenu(this)">⋮</button>
+                                    <div class="message-menu">
+                                        {% if message.sender_id == session['user_id'] or member.role in ['owner', 'admin'] %}
+                                            <div class="menu-item" onclick="recallMessage('{{ message.id }}')">撤回消息</div>
+                                        {% endif %}
+                                        <div class="menu-item" onclick="quoteMessage('{{ message.id }}', '{{ message.content | replace("'", "\\'") }}', '{{ message.sender_name }}')">引用消息</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     {% endif %}
@@ -126,6 +149,14 @@
                         <button id="send-btn" onclick="sendMessage()">发送</button>
                     </div>
                 </div>
+                <div class="quick-phrases-panel">
+                    <div class="quick-phrases-header">
+                        <h4>快捷短语</h4>
+                    </div>
+                    <div class="quick-phrases-list" id="quick-phrases-list">
+                        <!-- 快捷短语将通过JavaScript动态加载 -->
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -133,6 +164,7 @@
     <script>
         const roomId = "{{ room.id }}";
         const userId = "{{ session['user_id'] }}";
+        const memberRole = "{{ member.role }}";
         
         // 更新消息大小
         function updateMessageSize() {
@@ -153,49 +185,101 @@
             
             if (!content) return;
             
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', '/send_message', true);
-            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4 && xhr.status === 200) {
-                    const response = JSON.parse(xhr.responseText);
-                    if (response.success) {
-                        input.value = '';
-                        updateMessageSize();
-                        // 消息发送成功，长轮询会自动获取新消息，无需刷新页面
-                        showToast('消息发送成功', 'success');
-                    } else {
-                        showToast(response.message, 'error');
-                    }
-                }
-            };
-            xhr.send(`chat_room_id=${roomId}&content=${encodeURIComponent(content)}`);
-        }
-        
-        // 撤回消息
-        function recallMessage(messageId) {
-            showConfirm('确定要撤回这条消息吗？', () => {
+            if (isConnected) {
+                // 使用WebSocket发送消息
+                socket.emit('send_message', {
+                    room_id: roomId,
+                    user_id: userId,
+                    content: content
+                });
+                
+                input.value = '';
+                updateMessageSize();
+                showToast('消息发送成功', 'success');
+            } else {
+                // WebSocket未连接，使用HTTP请求作为后备
                 const xhr = new XMLHttpRequest();
-                xhr.open('POST', `/recall_message/${messageId}`, true);
+                xhr.open('POST', '/send_message', true);
+                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
                 xhr.onreadystatechange = function() {
                     if (xhr.readyState === 4 && xhr.status === 200) {
                         const response = JSON.parse(xhr.responseText);
                         if (response.success) {
-                            // 撤回成功，长轮询会自动获取更新，无需刷新页面
-                            showToast('消息撤回成功', 'success');
-                            // 立即重新开始长轮询，获取最新消息
-                            if (longPollingTimeout) {
-                                clearTimeout(longPollingTimeout);
-                            }
-                            lastMessageId = "";
-                            startLongPolling();
+                            input.value = '';
+                            updateMessageSize();
+                            showToast('消息发送成功', 'success');
                         } else {
                             showToast(response.message, 'error');
                         }
                     }
                 };
-                xhr.send();
+                xhr.send(`chat_room_id=${roomId}&content=${encodeURIComponent(content)}`);
+            }
+        }
+        
+        // 撤回消息
+        function recallMessage(messageId) {
+            showConfirm('确定要撤回这条消息吗？', () => {
+                if (isConnected) {
+                    // 使用WebSocket撤回消息
+                    socket.emit('recall_message', {
+                        message_id: messageId,
+                        user_id: userId
+                    });
+                    
+                    showToast('消息撤回成功', 'success');
+                } else {
+                    // WebSocket未连接，使用HTTP请求作为后备
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', `/recall_message/${messageId}`, true);
+                    xhr.onreadystatechange = function() {
+                        if (xhr.readyState === 4 && xhr.status === 200) {
+                            const response = JSON.parse(xhr.responseText);
+                            if (response.success) {
+                                showToast('消息撤回成功', 'success');
+                            } else {
+                                showToast(response.message, 'error');
+                            }
+                        }
+                    };
+                    xhr.send();
+                }
             });
+        }
+        
+        // 切换消息菜单显示
+        function toggleMessageMenu(menuBtn) {
+            // 关闭所有其他菜单
+            const allMenus = document.querySelectorAll('.message-menu');
+            allMenus.forEach(menu => {
+                if (menu !== menuBtn.nextElementSibling) {
+                    menu.style.display = 'none';
+                }
+            });
+            
+            // 切换当前菜单
+            const menu = menuBtn.nextElementSibling;
+            menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+            
+            // 点击外部关闭菜单
+            document.addEventListener('click', function closeMenu(e) {
+                if (!menuBtn.parentElement.contains(e.target)) {
+                    menu.style.display = 'none';
+                    document.removeEventListener('click', closeMenu);
+                }
+            });
+        }
+        
+        // 引用消息
+        function quoteMessage(messageId, content, senderName) {
+            const input = document.getElementById('message-input');
+            // 清除原有的引用
+            const currentValue = input.value.replace(/^>.*?\n\n/, '');
+            // 添加新的引用
+            const quotedContent = `> ${senderName}: ${content.replace(/\n/g, '\n> ')}\n\n`;
+            input.value = quotedContent + currentValue;
+            input.focus();
+            updateMessageSize();
         }
         
         // 键盘事件：Enter发送，Shift+Enter换行
@@ -210,6 +294,15 @@
             }
         });
         
+        // WebSocket相关变量
+        let socket = null;
+        let isConnected = false;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        const reconnectDelay = 3000;
+        let heartbeatInterval = null;
+        let heartbeatTimeout = null;
+        
         // 初始化
         window.onload = function() {
             updateMessageSize();
@@ -217,87 +310,179 @@
             const messagesArea = document.getElementById('messages-area');
             messagesArea.scrollTop = messagesArea.scrollHeight;
             
-            // 开始长轮询获取新消息
-            startLongPolling();
+            // 初始化WebSocket连接
+            initWebSocket();
+            
+            // 加载快捷短语
+            loadQuickPhrases();
         };
         
-        // 存储最后一条消息的ID和发送时间，用于长轮询
-        let lastMessageId = "";
-        let lastMessageSentAt = 0;
-        let longPollingTimeout = null;
-        // 标记是否为初始加载完成
-        let isInitialLoadComplete = false;
-        
-        // 获取所有初始消息的ID集合
-        function getInitialMessageIds() {
-            const messageIds = new Set();
-            const messages = document.querySelectorAll('.message');
-            messages.forEach(message => {
-                const messageContent = message.querySelector('.message-content');
-                const recallBtn = messageContent.querySelector('.recall-btn');
-                if (recallBtn) {
-                    const onclickAttr = recallBtn.getAttribute('onclick');
-                    const messageIdMatch = onclickAttr.match(/recallMessage\('([^']+)\)/);
-                    if (messageIdMatch && messageIdMatch[1]) {
-                        messageIds.add(messageIdMatch[1]);
-                    }
-                }
-            });
-            return messageIds;
-        }
-        
-        // 获取最后一条消息的发送时间
-        function getLastMessageSentAt() {
-            const messages = document.querySelectorAll('.message');
-            if (messages.length > 0) {
-                // 初始消息是按时间顺序渲染的，最后一条消息就是最新的
-                return time.time() * 1000; // 返回当前时间的毫秒数，确保只获取之后的消息
-            }
-            return 0;
-        }
-        
-        // 长轮询获取新消息
-        function startLongPolling() {
-            // 构建请求URL
-            const url = `/get_new_messages/${roomId}?last_message_id=${lastMessageId}`;
+        // 加载快捷短语
+        function loadQuickPhrases() {
             const xhr = new XMLHttpRequest();
-            
-            xhr.open('GET', url, true);
-            xhr.timeout = 30000; // 30秒超时
-            
+            xhr.open('GET', '/get_quick_phrases', true);
             xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4) {
-                    if (xhr.status === 200) {
-                        try {
-                            const response = JSON.parse(xhr.responseText);
-                            if (response.success && response.new_messages && response.new_messages.length > 0) {
-                                // 显示新消息
-                                displayNewMessages(response.new_messages);
-                                // 更新最后一条消息的ID
-                                if (response.new_messages.length > 0) {
-                                    lastMessageId = response.last_message_id;
-                                }
-                            }
-                        } catch (e) {
-                            console.error('解析新消息失败:', e);
-                        }
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.success) {
+                        displayQuickPhrases(response.phrases);
                     }
-                    // 继续长轮询
-                    longPollingTimeout = setTimeout(startLongPolling, 1000);
                 }
             };
-            
-            xhr.ontimeout = function() {
-                // 超时后继续长轮询
-                longPollingTimeout = setTimeout(startLongPolling, 1000);
-            };
-            
-            xhr.onerror = function() {
-                // 网络错误后继续长轮询
-                longPollingTimeout = setTimeout(startLongPolling, 5000);
-            };
-            
             xhr.send();
+        }
+        
+        // 显示快捷短语
+        function displayQuickPhrases(phrases) {
+            const quickPhrasesList = document.getElementById('quick-phrases-list');
+            quickPhrasesList.innerHTML = '';
+            
+            if (phrases.length === 0) {
+                quickPhrasesList.innerHTML = '<div class="no-phrases">暂无快捷短语</div>';
+                return;
+            }
+            
+            phrases.forEach(phrase => {
+                const phraseElement = document.createElement('div');
+                phraseElement.className = 'quick-phrase-item';
+                phraseElement.textContent = phrase.content;
+                phraseElement.onclick = function() {
+                    insertQuickPhrase(phrase.content);
+                };
+                quickPhrasesList.appendChild(phraseElement);
+            });
+        }
+        
+        // 插入快捷短语到输入框
+        function insertQuickPhrase(phrase) {
+            const input = document.getElementById('message-input');
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            const currentValue = input.value;
+            
+            // 插入快捷短语
+            const newValue = currentValue.substring(0, start) + phrase + currentValue.substring(end);
+            input.value = newValue;
+            
+            // 更新消息大小
+            updateMessageSize();
+            
+            // 重新聚焦输入框并设置光标位置
+            input.focus();
+            const newPosition = start + phrase.length;
+            input.selectionStart = newPosition;
+            input.selectionEnd = newPosition;
+        }
+        
+        // 初始化WebSocket连接
+        function initWebSocket() {
+            try {
+                // 创建WebSocket连接
+                socket = io();
+                
+                // 连接成功事件
+                socket.on('connect', () => {
+                    console.log('WebSocket连接成功');
+                    isConnected = true;
+                    reconnectAttempts = 0;
+                    
+                    // 加入当前聊天室
+                    socket.emit('join_room', {
+                        room_id: roomId,
+                        user_id: userId
+                    });
+                    
+                    // 启动心跳机制
+                    startHeartbeat();
+                });
+                
+                // 连接失败事件
+                socket.on('connect_error', (error) => {
+                    console.error('WebSocket连接失败:', error);
+                    isConnected = false;
+                });
+                
+                // 断开连接事件
+                socket.on('disconnect', (reason) => {
+                    console.log('WebSocket断开连接:', reason);
+                    isConnected = false;
+                    stopHeartbeat();
+                    
+                    // 尝试重连
+                    attemptReconnect();
+                });
+                
+                // 心跳响应
+                socket.on('pong', () => {
+                    clearTimeout(heartbeatTimeout);
+                });
+                
+                // 新消息事件
+                socket.on('new_message', (message) => {
+                    displayNewMessages([message]);
+                });
+                
+                // 消息撤回事件
+                socket.on('message_recalled', (data) => {
+                    // 更新消息状态
+                    const messageElement = document.querySelector(`[data-message-id="${data.message_id}"]`);
+                    if (messageElement) {
+                        messageElement.innerHTML = '<div class="recall-message">消息已撤回</div>';
+                    }
+                });
+                
+                // 错误事件
+                socket.on('error', (error) => {
+                    console.error('WebSocket错误:', error);
+                });
+                
+            } catch (error) {
+                console.error('WebSocket初始化失败:', error);
+                isConnected = false;
+                attemptReconnect();
+            }
+        }
+        
+        // 尝试重连
+        function attemptReconnect() {
+            if (reconnectAttempts < maxReconnectAttempts) {
+                reconnectAttempts++;
+                console.log(`尝试重连 ${reconnectAttempts}/${maxReconnectAttempts}...`);
+                
+                setTimeout(() => {
+                    initWebSocket();
+                }, reconnectDelay);
+            } else {
+                console.error('WebSocket重连失败，已达到最大尝试次数');
+            }
+        }
+        
+        // 启动心跳机制
+        function startHeartbeat() {
+            // 每30秒发送一次心跳
+            heartbeatInterval = setInterval(() => {
+                if (isConnected) {
+                    socket.emit('ping');
+                    
+                    // 设置心跳超时，10秒内没收到pong则断开连接
+                    heartbeatTimeout = setTimeout(() => {
+                        console.error('WebSocket心跳超时');
+                        socket.disconnect();
+                    }, 10000);
+                }
+            }, 30000);
+        }
+        
+        // 停止心跳机制
+        function stopHeartbeat() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+            if (heartbeatTimeout) {
+                clearTimeout(heartbeatTimeout);
+                heartbeatTimeout = null;
+            }
         }
         
         // 显示新消息
@@ -318,7 +503,10 @@
                 } else {
                     // 显示普通消息
                     const messageDiv = document.createElement('div');
-                    messageDiv.className = `message ${message.is_own ? 'own' : 'other'}`;
+                    // 客户端根据自己的userId判断消息是否是自己发送的
+                    const isOwn = message.sender_id == userId;
+                    messageDiv.className = `message ${isOwn ? 'own' : 'other'}`;
+                    messageDiv.setAttribute('data-message-id', message.id);
                     
                     const messageContent = document.createElement('div');
                     messageContent.className = 'message-content';
@@ -335,15 +523,41 @@
                     messageTime.className = 'message-time';
                     messageTime.textContent = message.formatted_time;
                     
-                    const recallBtn = document.createElement('button');
-                    recallBtn.className = 'recall-btn';
-                    recallBtn.textContent = '×';
-                    recallBtn.onclick = function() { recallMessage(message.id); };
+                    // 消息操作菜单
+                    const menuContainer = document.createElement('div');
+                    menuContainer.className = 'message-menu-container';
+                    
+                    const menuBtn = document.createElement('button');
+                    menuBtn.className = 'menu-btn';
+                    menuBtn.textContent = '⋮';
+                    menuBtn.onclick = function() { toggleMessageMenu(this); };
+                    
+                    const messageMenu = document.createElement('div');
+                    messageMenu.className = 'message-menu';
+                    
+                    // 撤回消息菜单项
+                    if (message.sender_id == userId || memberRole == 'owner' || memberRole == 'admin') {
+                        const recallItem = document.createElement('div');
+                        recallItem.className = 'menu-item';
+                        recallItem.textContent = '撤回消息';
+                        recallItem.onclick = function() { recallMessage(message.id); };
+                        messageMenu.appendChild(recallItem);
+                    }
+                    
+                    // 引用消息菜单项
+                    const quoteItem = document.createElement('div');
+                    quoteItem.className = 'menu-item';
+                    quoteItem.textContent = '引用消息';
+                    quoteItem.onclick = function() { quoteMessage(message.id, message.content, message.sender_name); };
+                    messageMenu.appendChild(quoteItem);
+                    
+                    menuContainer.appendChild(menuBtn);
+                    menuContainer.appendChild(messageMenu);
                     
                     messageContent.appendChild(messageHeader);
                     messageContent.appendChild(messageText);
                     messageContent.appendChild(messageTime);
-                    messageContent.appendChild(recallBtn);
+                    messageContent.appendChild(menuContainer);
                     messageDiv.appendChild(messageContent);
                     messagesArea.appendChild(messageDiv);
                 }

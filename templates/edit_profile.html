@@ -8,46 +8,7 @@
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <div class="sidebar">
-        <div class="sidebar-header">
-            <h1>聊天室</h1>
-        </div>
-        <div class="sidebar-nav">
-            <div class="nav-item">
-                <a href="/create_chat_room">创建聊天室</a>
-            </div>
-            <div class="nav-item">
-                <a href="/search_chat_room">查找聊天室</a>
-            </div>
-            <div class="nav-item">
-                <a href="/manage_requests">审核请求</a>
-            </div>
-            <div class="nav-item">
-                <a href="/search_user">搜索用户</a>
-            </div>
-            <div class="nav-item">
-                <a href="/edit_profile">编辑个人信息</a>
-            </div>
-            <div class="nav-item">
-                <a href="/change_password">修改密码</a>
-            </div>
-            <div class="nav-item">
-                <a href="/logout">退出登录</a>
-            </div>
-        </div>
-        <div class="chat-rooms">
-            <h2>我的聊天室</h2>
-            {% if chat_rooms %}
-                {% for room in chat_rooms %}
-                    <div class="room-item">
-                        <a href="/chat_room/{{ room.id }}">{{ room.name }}</a>
-                    </div>
-                {% endfor %}
-            {% else %}
-                <p>暂无聊天室</p>
-            {% endif %}
-        </div>
-    </div>
+    {% include '_sidebar.html' %}
     
     <div class="main-content">
         <div class="main-header">
@@ -68,6 +29,35 @@
                     </div>
                     <input type="submit" value="保存修改">
                 </form>
+            </div>
+            
+            <div class="form-container" style="margin-top: 2rem;">
+                <h3>快捷短语管理</h3>
+                <form method="POST" action="/add_quick_phrase">
+                    <div class="form-group">
+                        <label for="phrase">添加快捷短语</label>
+                        <input type="text" id="phrase" name="phrase" placeholder="输入快捷短语" required>
+                        <input type="submit" value="添加">
+                    </div>
+                </form>
+                
+                {% if quick_phrases %}
+                    <div class="quick-phrases-list">
+                        <h4>当前快捷短语</h4>
+                        <ul>
+                            {% for phrase in quick_phrases %}
+                                <li>
+                                    {{ phrase.content }}
+                                    <form action="/delete_quick_phrase/{{ phrase.id }}" method="POST" style="display: inline;">
+                                        <button type="submit" onclick="return confirm('确定要删除这个快捷短语吗？')">删除</button>
+                                    </form>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% else %}
+                    <p>暂无快捷短语</p>
+                {% endif %}
             </div>
         </div>
     </div>
