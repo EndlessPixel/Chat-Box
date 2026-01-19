@@ -15,6 +15,7 @@
 - **CSS3**
 - **JavaScript (ES6+)**
 - **AJAX (XMLHttpRequest)**
+- **图标库**: Font Awesome
 
 ### 开发工具
 - **IDE**: VS Code
@@ -175,5 +176,5 @@ while time.time() - start_time < 25:  # 最长等待25秒
 
 ---
 
-**最后更新**: 2026-01-18
-**版本**: v1.0.0
+**最后更新**: 2026-01-19
+**版本**: v1.0.1

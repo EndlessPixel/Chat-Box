@@ -4,27 +4,37 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>登录 - 聊天室</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body class="auth-page">
-    <div class="login-container">
-        <h1>聊天室登录</h1>
-        {% if error %}
-            <div class="error">{{ error }}</div>
-        {% endif %}
-        <form method="POST" action="/login">
-            <div class="form-group">
-                <label for="username">用户名</label>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <h1>聊天室登录</h1>
+            </div>
+            {% if error %}
+                <div class="error">{{ error }}</div>
+            {% endif %}
+            <form method="POST" action="/login">
+                <div class="form-group">
+                <label for="username">
+                    <i class="fas fa-user"></i> 用户名
+                </label>
                 <input type="text" id="username" name="username" required>
             </div>
             <div class="form-group">
-                <label for="password">密码</label>
+                <label for="password">
+                    <i class="fas fa-lock"></i> 密码
+                </label>
                 <input type="password" id="password" name="password" required>
             </div>
-            <input type="submit" value="登录">
-        </form>
-        <div class="register-link">
-            还没有账号？<a href="/register">立即注册</a>
+            <input type="submit" value="登录" class="auth-button">
+            </form>
+            <div class="auth-switch">
+                <p>还没有账号？</p>
+                <a href="/register" class="switch-button">立即注册</a>
+            </div>
         </div>
     </div>
 </body>

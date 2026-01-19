@@ -31,8 +31,6 @@ def validate_password(password):
         return False, '密码必须包含数字'
     return True, '密码符合要求'
 
-from functools import lru_cache
-
 # 注意：使用lru_cache时，参数必须是可哈希类型，且缓存会在应用重启时清空
 def get_user_chat_rooms(user_id):
     # 获取当前用户的聊天室列表
@@ -74,6 +72,11 @@ def register():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
+        confirm_password = request.form['confirm_password']
+        
+        # 验证密码是否一致
+        if password != confirm_password:
+            return render_template('register.html', error='两次输入的密码不一致')
         
         # 验证密码
         is_valid, error_msg = validate_password(password)

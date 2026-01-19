@@ -19,12 +19,36 @@ body {
     color: white;
     display: flex;
     flex-direction: column;
+    animation: sidebarSlideIn 0.5s ease-out;
+}
+
+@keyframes sidebarSlideIn {
+    from {
+        transform: translateX(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
 }
 
 .sidebar-header {
     padding: 1rem;
     background-color: #212529;
     text-align: center;
+    animation: headerFadeIn 0.6s ease-out 0.1s both;
+}
+
+@keyframes headerFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .sidebar-header h1 {
@@ -33,10 +57,39 @@ body {
 
 .sidebar-nav {
     padding: 1rem;
+    animation: navFadeIn 0.7s ease-out 0.2s both;
+}
+
+@keyframes navFadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 .nav-item {
     margin-bottom: 0.5rem;
+    animation: navItemSlideIn 0.3s ease-out both;
+}
+
+.nav-item:nth-child(1) { animation-delay: 0.3s; }
+.nav-item:nth-child(2) { animation-delay: 0.4s; }
+.nav-item:nth-child(3) { animation-delay: 0.5s; }
+.nav-item:nth-child(4) { animation-delay: 0.6s; }
+.nav-item:nth-child(5) { animation-delay: 0.7s; }
+.nav-item:nth-child(6) { animation-delay: 0.8s; }
+
+@keyframes navItemSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 
 .nav-item a {
@@ -47,10 +100,19 @@ body {
     text-decoration: none;
     border-radius: 4px;
     text-align: center;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
 }
 
 .nav-item a:hover {
     background-color: #6c757d;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.nav-item a:active {
+    transform: translateY(0);
 }
 
 /* 聊天室列表 */
@@ -58,17 +120,57 @@ body {
     flex: 1;
     padding: 1rem;
     overflow-y: auto;
+    animation: chatRoomsFadeIn 0.8s ease-out 0.4s both;
+}
+
+@keyframes chatRoomsFadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 .chat-rooms h2 {
     font-size: 1rem;
     margin-bottom: 1rem;
+    animation: sectionTitleFadeIn 0.5s ease-out 0.5s both;
+}
+
+@keyframes sectionTitleFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .chat-rooms .room-item {
     margin-bottom: 0.5rem;
     padding: 0;
     border: none;
+    animation: roomItemSlideIn 0.4s ease-out both;
+}
+
+.chat-rooms .room-item:nth-child(2) { animation-delay: 0.6s; }
+.chat-rooms .room-item:nth-child(3) { animation-delay: 0.7s; }
+.chat-rooms .room-item:nth-child(4) { animation-delay: 0.8s; }
+.chat-rooms .room-item:nth-child(5) { animation-delay: 0.9s; }
+.chat-rooms .room-item:nth-child(6) { animation-delay: 1.0s; }
+
+@keyframes roomItemSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 
 .chat-rooms .room-item a {
@@ -78,10 +180,39 @@ body {
     color: white;
     text-decoration: none;
     border-radius: 4px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
 }
 
-.room-item a:hover {
+.chat-rooms .room-item a:hover {
     background-color: #6c757d;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.chat-rooms .room-item a:active {
+    transform: translateY(0);
+}
+
+/* 当前聊天室高亮 */
+.chat-rooms .room-item a.active {
+    background-color: #007bff;
+    font-weight: bold;
+    box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
+    animation: roomActivePulse 0.5s ease-out;
+}
+
+@keyframes roomActivePulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+    100% {
+        transform: scale(1);
+    }
 }
 
 /* 右侧主内容 */
@@ -267,6 +398,18 @@ input[type="submit"]:hover {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    animation: chatContainerFadeIn 0.6s ease-out;
+}
+
+@keyframes chatContainerFadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 
 .messages-area {
@@ -280,16 +423,39 @@ input[type="submit"]:hover {
     margin-bottom: 1rem;
     display: flex;
     max-width: 80%;
+    animation: messageSlideIn 0.3s ease-out both;
+    opacity: 0;
+}
+
+@keyframes messageSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+        scale: 0.95;
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+        scale: 1;
+    }
+}
+
+.message.other {
+    justify-content: flex-start;
+    animation-delay: 0.1s;
 }
 
 .message.own {
     justify-content: flex-end;
+    animation-delay: 0.2s;
 }
 
 .message-content {
     padding: 0.8rem;
     border-radius: 8px;
     position: relative;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .message.other .message-content {
@@ -300,6 +466,11 @@ input[type="submit"]:hover {
 .message.own .message-content {
     background-color: #007bff;
     color: white;
+}
+
+.message:hover .message-content {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
 .message-header {
@@ -317,12 +488,19 @@ input[type="submit"]:hover {
 
 .message-text {
     word-break: break-word;
+    line-height: 1.4;
 }
 
 .message-time {
     font-size: 0.7rem;
     margin-top: 0.3rem;
     text-align: right;
+    opacity: 0.7;
+    transition: opacity 0.3s ease;
+}
+
+.message:hover .message-time {
+    opacity: 1;
 }
 
 .message.other .message-time {
@@ -346,15 +524,24 @@ input[type="submit"]:hover {
     font-size: 0.8rem;
     cursor: pointer;
     opacity: 0;
-    transition: opacity 0.2s;
+    transition: all 0.3s ease;
+    transform: scale(0.8);
+    box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
 }
 
 .message:hover .recall-btn {
     opacity: 1;
+    transform: scale(1);
 }
 
 .recall-btn:hover {
     background-color: #c82333;
+    transform: scale(1.1);
+    box-shadow: 0 3px 6px rgba(220, 53, 69, 0.4);
+}
+
+.recall-btn:active {
+    transform: scale(0.95);
 }
 
 .recall-message {
@@ -363,6 +550,18 @@ input[type="submit"]:hover {
     font-size: 0.9rem;
     margin-bottom: 1rem;
     font-style: italic;
+    animation: recallMessageFadeIn 0.4s ease-out;
+}
+
+@keyframes recallMessageFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 /* 输入区域 */
@@ -834,4 +1033,216 @@ body.auth-page {
 
 .confirm-ok:hover {
     background-color: #0056b3;
+}
+
+/* 新版认证页面样式 */
+body.auth-page {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    animation: gradientShift 15s ease infinite;
+    background-size: 400% 400%;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+@keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+.auth-container {
+    width: 100%;
+    max-width: 400px;
+    padding: 20px;
+}
+
+.auth-card {
+    background-color: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    padding: 2rem;
+    animation: cardSlideIn 0.6s ease-out;
+}
+
+@keyframes cardSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.auth-header h1 {
+    text-align: center;
+    margin-bottom: 1.5rem;
+    color: #333;
+    font-size: 1.8rem;
+    font-weight: 600;
+}
+
+.auth-page .form-group {
+    margin-bottom: 1.5rem;
+    animation: formFieldSlideIn 0.5s ease-out forwards;
+    opacity: 0;
+}
+
+.auth-page .form-group:nth-child(1) {
+    animation-delay: 0.1s;
+}
+
+.auth-page .form-group:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.auth-page .form-group:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+.auth-page .form-group:nth-child(4) {
+    animation-delay: 0.4s;
+}
+
+@keyframes formFieldSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.auth-page .form-group label {
+    color: #555;
+    font-weight: 500;
+    font-size: 0.95rem;
+    margin-bottom: 0.5rem;
+}
+
+.auth-page .form-group input {
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 0.9rem;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+    background-color: #fafafa;
+}
+
+.auth-page .form-group input:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+    background-color: white;
+    transform: translateY(-1px);
+}
+
+.auth-button {
+    width: 100%;
+    padding: 1rem;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-top: 0.5rem;
+    animation: buttonSlideIn 0.6s ease-out 0.4s forwards;
+    opacity: 0;
+}
+
+@keyframes buttonSlideIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.auth-button:hover {
+    background-color: #45a049;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(76, 175, 80, 0.3);
+}
+
+.auth-button:active {
+    transform: translateY(0);
+    box-shadow: 0 3px 10px rgba(76, 175, 80, 0.3);
+}
+
+.auth-switch {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #e0e0e0;
+    animation: switchSlideIn 0.6s ease-out 0.5s forwards;
+    opacity: 0;
+}
+
+@keyframes switchSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.auth-switch p {
+    color: #666;
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+.switch-button {
+    color: #4CAF50;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+    border: 2px solid transparent;
+}
+
+.switch-button:hover {
+    background-color: rgba(76, 175, 80, 0.1);
+    border-color: #4CAF50;
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+
+.auth-page .error {
+    background-color: #ffebee;
+    color: #c62828;
+    padding: 0.9rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+    border-left: 4px solid #c62828;
+    animation: errorSlideIn 0.4s ease-out;
+    text-align: left;
+}
+
+@keyframes errorSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
