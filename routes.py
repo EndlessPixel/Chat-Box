@@ -6,10 +6,74 @@ import base64
 import hashlib
 import uuid
 import time
+import Levenshtein
+from collections import deque
+
+# 存储用户消息记录，key为user_id，value为deque([(time, content), ...])
+user_message_records = {}
+# 最大消息记录数
+MAX_MESSAGE_RECORDS = 5
+# 频率限制：1秒内最多3条消息
+FREQUENCY_LIMIT = 3
+FREQUENCY_WINDOW = 1  # 秒
+# 重复度限制：80%相似度
+SIMILARITY_THRESHOLD = 0.8
 
 # 辅助函数
 def hash_password(password):
     return hashlib.sha512(password.encode()).hexdigest()
+
+# 检查消息频率和重复度
+def check_message_spam(user_id, content):
+    """
+    检查用户消息是否违反频率限制和重复度限制
+    :param user_id: 用户ID
+    :param content: 消息内容
+    :return: (是否允许发送, 错误信息)
+    """
+    current_time = time.time()
+    
+    # 初始化用户消息记录
+    if user_id not in user_message_records:
+        user_message_records[user_id] = deque(maxlen=MAX_MESSAGE_RECORDS)
+    
+    message_deque = user_message_records[user_id]
+    
+    # 1. 检查频率限制：1秒内最多3条消息
+    recent_messages = [msg for msg in message_deque if current_time - msg[0] < FREQUENCY_WINDOW]
+    if len(recent_messages) >= FREQUENCY_LIMIT:
+        return False, "发送频率过快，请稍后再试"
+    
+    # 2. 检查重复度限制：连续3条消息80%以上相似
+    if len(message_deque) >= 2:  # 需要至少2条历史消息来比较
+        # 获取最近3条消息（包括当前消息）
+        recent_3 = list(message_deque)[-2:] + [(current_time, content)]
+        
+        # 计算相似度
+        all_similar = True
+        for i in range(1, len(recent_3)):
+            prev_content = recent_3[i-1][1]
+            curr_content = recent_3[i][1]
+            
+            # 计算Levenshtein相似度
+            if not prev_content or not curr_content:
+                continue
+            
+            # 计算编辑距离
+            distance = Levenshtein.distance(prev_content, curr_content)
+            max_len = max(len(prev_content), len(curr_content))
+            similarity = 1 - (distance / max_len) if max_len > 0 else 1
+            
+            if similarity < SIMILARITY_THRESHOLD:
+                all_similar = False
+                break
+        
+        if all_similar:
+            return False, "消息内容重复度过高，请发送不同内容"
+    
+    # 允许发送，更新消息记录
+    message_deque.append((current_time, content))
+    return True, ""
 
 def encode_username(username):
     return base64.b64encode(username.encode()).decode()
@@ -790,6 +854,11 @@ def send_message():
     if len(content.encode()) > 5 * 1024:
         return jsonify({'success': False, 'message': '消息大小超过5KB'})
     
+    # 检查消息频率和重复度
+    is_allowed, error_msg = check_message_spam(session['user_id'], content)
+    if not is_allowed:
+        return jsonify({'success': False, 'message': error_msg})
+    
     # 处理链接
     content = process_links(content)
     
@@ -949,6 +1018,13 @@ def handle_send_message(data):
     # 检查消息大小
     if len(content) > 5 * 1024:
         emit('error', {'message': '消息长度超过限制'})
+        return
+    
+    # 检查消息频率和重复度
+    is_allowed, error_msg = check_message_spam(user_id, content)
+    if not is_allowed:
+        # 发送spam_warning事件
+        emit('spam_warning', {'message': error_msg})
         return
     
     # 处理链接

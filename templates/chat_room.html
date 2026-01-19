@@ -126,9 +126,9 @@
                                     <button class="menu-btn" onclick="toggleMessageMenu(this)">⋮</button>
                                     <div class="message-menu">
                                         {% if message.sender_id == session['user_id'] or member.role in ['owner', 'admin'] %}
-                                            <div class="menu-item" onclick="recallMessage('{{ message.id }}')">撤回消息</div>
+                                            <div class="menu-item" onclick='recallMessage("{{ message.id }}")'>撤回消息</div>
                                         {% endif %}
-                                        <div class="menu-item" onclick="quoteMessage('{{ message.id }}', '{{ message.content | replace("'", "\\'") }}', '{{ message.sender_name }}')">引用消息</div>
+                                        <div class="menu-item" data-message-id="{{ message.id }}" data-content="{{ message.content }}" data-sender="{{ message.sender_name }}" onclick="quoteMessage(this)">引用消息</div>
                                     </div>
                                 </div>
                             </div>
@@ -146,7 +146,7 @@
                     ></textarea>
                     <div class="input-footer">
                         <span class="message-size" id="message-size">0/5KB</span>
-                        <button id="send-btn" onclick="sendMessage()">发送</button>
+                        <button id="send-btn" onclick="debouncedSendMessage()">发送</button>
                     </div>
                 </div>
                 <div class="quick-phrases-panel">
@@ -165,6 +165,18 @@
         const roomId = "{{ room.id }}";
         const userId = "{{ session['user_id'] }}";
         const memberRole = "{{ member.role }}";
+        let sendTimeout = null;
+        let isSending = false;
+        
+        // 防抖函数
+        function debounce(func, delay) {
+            return function() {
+                const context = this;
+                const args = arguments;
+                clearTimeout(sendTimeout);
+                sendTimeout = setTimeout(() => func.apply(context, args), delay);
+            };
+        }
         
         // 更新消息大小
         function updateMessageSize() {
@@ -181,9 +193,14 @@
         // 发送消息
         function sendMessage() {
             const input = document.getElementById('message-input');
+            const sendBtn = document.getElementById('send-btn');
             const content = input.value.trim();
             
-            if (!content) return;
+            if (!content || isSending) return;
+            
+            isSending = true;
+            sendBtn.disabled = true;
+            sendBtn.textContent = '发送中...';
             
             if (isConnected) {
                 // 使用WebSocket发送消息
@@ -196,12 +213,22 @@
                 input.value = '';
                 updateMessageSize();
                 showToast('消息发送成功', 'success');
+                
+                // 重置发送状态
+                isSending = false;
+                sendBtn.disabled = false;
+                sendBtn.textContent = '发送';
             } else {
                 // WebSocket未连接，使用HTTP请求作为后备
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', '/send_message', true);
                 xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
                 xhr.onreadystatechange = function() {
+                    // 重置发送状态
+                    isSending = false;
+                    sendBtn.disabled = false;
+                    sendBtn.textContent = '发送';
+                    
                     if (xhr.readyState === 4 && xhr.status === 200) {
                         const response = JSON.parse(xhr.responseText);
                         if (response.success) {
@@ -211,11 +238,16 @@
                         } else {
                             showToast(response.message, 'error');
                         }
+                    } else if (xhr.readyState === 4) {
+                        showToast('消息发送失败，请重试', 'error');
                     }
                 };
                 xhr.send(`chat_room_id=${roomId}&content=${encodeURIComponent(content)}`);
             }
         }
+        
+        // 创建防抖版本的发送消息函数
+        const debouncedSendMessage = debounce(sendMessage, 300);
         
         // 撤回消息
         function recallMessage(messageId) {
@@ -271,7 +303,10 @@
         }
         
         // 引用消息
-        function quoteMessage(messageId, content, senderName) {
+        function quoteMessage(menuItem) {
+            const messageId = menuItem.getAttribute('data-message-id');
+            const content = menuItem.getAttribute('data-content');
+            const senderName = menuItem.getAttribute('data-sender');
             const input = document.getElementById('message-input');
             // 清除原有的引用
             const currentValue = input.value.replace(/^>.*?\n\n/, '');
@@ -289,7 +324,7 @@
                     // Shift+Enter换行，默认行为
                 } else {
                     e.preventDefault();
-                    sendMessage();
+                    debouncedSendMessage();
                 }
             }
         });
@@ -431,6 +466,16 @@
                     }
                 });
                 
+                // 垃圾消息警告事件
+                socket.on('spam_warning', (data) => {
+                    showToast(data.message, 'error');
+                    // 重置发送状态
+                    isSending = false;
+                    const sendBtn = document.getElementById('send-btn');
+                    sendBtn.disabled = false;
+                    sendBtn.textContent = '发送';
+                });
+                
                 // 错误事件
                 socket.on('error', (error) => {
                     console.error('WebSocket错误:', error);
@@ -548,7 +593,10 @@
                     const quoteItem = document.createElement('div');
                     quoteItem.className = 'menu-item';
                     quoteItem.textContent = '引用消息';
-                    quoteItem.onclick = function() { quoteMessage(message.id, message.content, message.sender_name); };
+                    quoteItem.setAttribute('data-message-id', message.id);
+                    quoteItem.setAttribute('data-content', message.content);
+                    quoteItem.setAttribute('data-sender', message.sender_name);
+                    quoteItem.onclick = function() { quoteMessage(this); };
                     messageMenu.appendChild(quoteItem);
                     
                     menuContainer.appendChild(menuBtn);
