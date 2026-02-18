@@ -168,28 +168,32 @@ def process_forbidden_words(content, room_id):
         # 只检查非链接文本中的违禁词
         import re
         
-        # 保存所有链接
-        links = re.findall(r'<a[^>]*>(.*?)<\/a>', processed_content, flags=re.DOTALL)
-        link_placeholders = [f'__LINK_PLACEHOLDER_{i}__' for i in range(len(links))]
+        # 保存所有完整的链接标签
+        link_pattern = r'<a[^>]*>.*?<\/a>'
+        full_links = re.findall(link_pattern, processed_content, flags=re.DOTALL)
+        link_placeholders = [f'__LINK_PLACEHOLDER_{i}__' for i in range(len(full_links))]
         
         # 替换链接为占位符
-        for i, link in enumerate(links):
-            processed_content = processed_content.replace(f'<a href="{re.search(r"href=[\"\']([^\"\']+)[\"\']", link).group(1)}">{link.split(">").pop().split("<")[0]}</a>', link_placeholders[i])
+        temp_content = processed_content
+        for i, full_link in enumerate(full_links):
+            temp_content = temp_content.replace(full_link, link_placeholders[i])
         
         # 处理违禁词
         for word in forbidden_words:
-            if word.word in processed_content:
+            if word.word in temp_content:
                 if word.action == 'block':
                     # 禁止发送
                     return content, False
                 elif word.action == 'mask':
                     # 自动打码，用*替换违禁词
                     mask = '*' * len(word.word)
-                    processed_content = processed_content.replace(word.word, mask)
+                    temp_content = temp_content.replace(word.word, mask)
         
         # 恢复链接
         for i, placeholder in enumerate(link_placeholders):
-            processed_content = processed_content.replace(placeholder, links[i])
+            temp_content = temp_content.replace(placeholder, full_links[i])
+        
+        processed_content = temp_content
     
     return processed_content, True
 
@@ -1086,8 +1090,23 @@ def handle_recall_message(data):
         emit('error', {'message': '消息不存在'})
         return
     
-    # 验证权限（只有发送者可以撤回消息）
-    if message.sender_id != user_id:
+    # 验证权限
+    has_permission = False
+    
+    # 普通用户可以撤回自己的消息
+    if message.sender_id == user_id:
+        has_permission = True
+    # 管理员和房主也可以撤回消息（仅聊天室消息）
+    elif message.chat_room_id:
+        member = ChatRoomMember.query.filter_by(
+            user_id=user_id,
+            chat_room_id=message.chat_room_id
+        ).first()
+        
+        if member and member.role in ['admin', 'owner']:
+            has_permission = True
+    
+    if not has_permission:
         emit('error', {'message': '没有权限撤回该消息'})
         return
     
