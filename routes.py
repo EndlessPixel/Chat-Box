@@ -8,6 +8,7 @@ import uuid
 import time
 import Levenshtein
 from collections import deque
+import os
 
 # 存储用户消息记录，key为user_id，value为deque([(time, content), ...])
 user_message_records = {}
@@ -18,6 +19,16 @@ FREQUENCY_LIMIT = 3
 FREQUENCY_WINDOW = 1  # 秒
 # 重复度限制：80%相似度
 SIMILARITY_THRESHOLD = 0.8
+
+# 机器人部署限流
+import json
+from collections import defaultdict
+
+# 存储用户部署机器人的时间记录，key为user_id，value为deque([time, ...])
+bot_deploy_records = defaultdict(lambda: deque(maxlen=5))
+# 机器人部署频率限制：1分钟内最多部署2个机器人
+BOT_DEPLOY_LIMIT = 2
+BOT_DEPLOY_WINDOW = 60  # 秒
 
 # 辅助函数
 def hash_password(password):
@@ -1476,3 +1487,135 @@ def change_password():
         return redirect(url_for('login'))
     
     return render_template('change_password.html', chat_rooms=chat_rooms)
+
+# 机器人相关API
+
+# 检查机器人部署频率
+@app.route('/deploy_bot', methods=['POST'])
+def deploy_bot():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登录'})
+    
+    user_id = session['user_id']
+    current_time = time.time()
+    
+    # 检查部署频率
+    recent_deploys = [t for t in bot_deploy_records[user_id] if current_time - t < BOT_DEPLOY_WINDOW]
+    if len(recent_deploys) >= BOT_DEPLOY_LIMIT:
+        return jsonify({'success': False, 'message': '部署频率过高，请1分钟后再试'})
+    
+    # 获取部署信息
+    name = request.form.get('name')
+    description = request.form.get('description', '')
+    template = request.form.get('template')
+    config = request.form.get('config', '{}')
+    
+    if not name or not template:
+        return jsonify({'success': False, 'message': '缺少必要参数'})
+    
+    # 验证模板是否存在
+    template_path = f"bot_model/{template}.py"
+    if not os.path.exists(template_path):
+        return jsonify({'success': False, 'message': '指定的模板不存在'})
+    
+    try:
+        # 验证配置是否为有效的JSON
+        config_dict = json.loads(config)
+    except json.JSONDecodeError:
+        return jsonify({'success': False, 'message': '配置格式错误，必须是有效的JSON'})
+    
+    # 创建机器人记录
+    new_bot = Bot(
+        name=name,
+        description=description,
+        template=template,
+        config=config,
+        creator_id=user_id
+    )
+    
+    db.session.add(new_bot)
+    db.session.commit()
+    
+    # 更新部署记录
+    bot_deploy_records[user_id].append(current_time)
+    
+    return jsonify({'success': True, 'bot_id': new_bot.id})
+
+# 测试机器人
+@app.route('/test_bot', methods=['POST'])
+def test_bot():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登录'})
+    
+    bot_id = request.form.get('bot_id')
+    message = request.form.get('message')
+    
+    if not bot_id or not message:
+        return jsonify({'success': False, 'message': '缺少必要参数'})
+    
+    # 查找机器人
+    bot = Bot.query.get(bot_id)
+    if not bot:
+        return jsonify({'success': False, 'message': '机器人不存在'})
+    
+    # 验证权限
+    if bot.creator_id != session['user_id']:
+        return jsonify({'success': False, 'message': '没有权限测试此机器人'})
+    
+    try:
+        # 动态导入机器人模块
+        template_module = __import__(f"bot_model.{bot.template}", fromlist=[bot.template.capitalize()])
+        bot_class = getattr(template_module, bot.template.capitalize())
+        
+        # 解析配置
+        config = json.loads(bot.config) if bot.config else {}
+        
+        # 初始化机器人
+        bot_instance = bot_class(config)
+        
+        # 处理消息
+        response = bot_instance.process_message(message)
+        
+        return jsonify({'success': True, 'response': response})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'测试失败: {str(e)}'})
+
+# 获取机器人列表
+@app.route('/get_bots')
+def get_bots():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登录'})
+    
+    user_id = session['user_id']
+    bots = Bot.query.filter_by(creator_id=user_id).all()
+    
+    bot_list = []
+    for bot in bots:
+        bot_list.append({
+            'id': bot.id,
+            'name': bot.name,
+            'description': bot.description,
+            'template': bot.template,
+            'created_at': bot.created_at
+        })
+    
+    return jsonify({'success': True, 'bots': bot_list})
+
+# 删除机器人
+@app.route('/delete_bot/<bot_id>', methods=['POST'])
+def delete_bot(bot_id):
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登录'})
+    
+    bot = Bot.query.get(bot_id)
+    if not bot:
+        return jsonify({'success': False, 'message': '机器人不存在'})
+    
+    # 验证权限
+    if bot.creator_id != session['user_id']:
+        return jsonify({'success': False, 'message': '没有权限删除此机器人'})
+    
+    db.session.delete(bot)
+    db.session.commit()
+    
+    return jsonify({'success': True})

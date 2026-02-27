@@ -107,3 +107,17 @@ class QuickPhrase(db.Model):
     
     def __repr__(self):
         return f'<QuickPhrase user={self.user_id} content={self.content[:20]}...>'
+
+# 机器人表
+class Bot(db.Model):
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    template = db.Column(db.String(100), nullable=False)  # 模板名称
+    config = db.Column(db.Text, nullable=True)  # 配置信息（JSON格式）
+    creator_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.Integer, default=lambda: int(time.time()))
+    updated_at = db.Column(db.Integer, default=lambda: int(time.time()), onupdate=lambda: int(time.time()))
+    
+    def __repr__(self):
+        return f'<Bot {self.name}>'
